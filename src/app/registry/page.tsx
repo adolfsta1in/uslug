@@ -6,45 +6,26 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { formToRegistryRow, ALL_COLUMNS, COLUMN_LABELS, TAJIK_MONTHS } from '@/lib/certificateTypes';
 import { supabase } from '@/lib/supabase';
-import { applyAutoReplace, initAutoReplacements } from '@/lib/autoReplace';
 
 interface CertRow {
   id: string;
-  saved_at: string;
+  created_at: string;
+  blank_number: string;
+  date_from_day: string;
+  date_from_month: string;
+  date_from_year: string;
+  date_to_day: string;
+  date_to_month: string;
+  date_to_year: string;
   cert_number: string;
-  registry_col_d: string | null;
-  date_start_day: string;
-  date_start_month: string;
-  date_start_year: string;
-  date_end_day: string;
-  date_end_month: string;
-  date_end_year: string;
-  cert_body_name: string;
-  cert_body_address: string;
-  cert_body_number: string;
-  products: string;
-  quantity: string;
-  quantity_unit: string | null;
-  code_num: string;
-  code_nm: string;
-  norm_documents: string;
-  country: string;
-  issued_to_org: string;
-  issued_to_address: string;
-  basis_document: string;
-  additional_info: string;
+  provider_name_address: string;
+  director_name: string;
+  services_list: string;
+  normative_documents: string;
+  conclusion_doc: string;
+  tax_certificate: string;
+  inspection_body: string;
   head_name: string;
-  dept_head_name: string;
-  serial_number: string;
-  copy_number: string;
-  cert_processing: string;
-  total_cost: string;
-  amount_due: string;
-  tests: string;
-  invoice_number: string;
-  invoice_date: string;
-  inn: string;
-  pdf_storage_path: string | null;
 }
 
 export default function RegistryPage() {
@@ -75,7 +56,7 @@ export default function RegistryPage() {
     let query = supabase
       .from('certificates')
       .select('*', { count: 'exact' })
-      .order('saved_at', { ascending: false });
+      .order('created_at', { ascending: false });
 
     if (normalizedSearch) {
       query = query.ilike('cert_number', `%${normalizedSearch}%`);
@@ -94,7 +75,6 @@ export default function RegistryPage() {
   }, []);
 
   useEffect(() => {
-    initAutoReplacements();
     loadCerts(currentPage, certNumberSearch);
   }, [loadCerts, currentPage, certNumberSearch]);
 
@@ -103,7 +83,7 @@ export default function RegistryPage() {
     setCurrentPage(1);
   }, []);
 
-  const deleteCert = useCallback(async (id: string, pdfPath: string | null) => {
+  const deleteCert = useCallback(async (id: string) => {
     const { error: deleteError } = await supabase
       .from('certificates')
       .delete()
@@ -114,20 +94,11 @@ export default function RegistryPage() {
       return;
     }
 
-    // Удаляем PDF из хранилища если есть
-    if (pdfPath) {
-      await supabase.storage.from('pdf-files').remove([pdfPath]);
-    }
-
     setCerts(prev => prev.filter(c => c.id !== id));
   }, []);
 
   const clearAll = useCallback(async () => {
     if (!confirm('Удалить все сертификаты из реестра?')) return;
-
-    const pdfPaths = certs
-      .map(c => c.pdf_storage_path)
-      .filter((p): p is string => !!p);
 
     const { error: deleteError } = await supabase
       .from('certificates')
@@ -139,61 +110,33 @@ export default function RegistryPage() {
       return;
     }
 
-    if (pdfPaths.length > 0) {
-      await supabase.storage.from('pdf-files').remove(pdfPaths);
-    }
-
     setCerts([]);
-  }, [certs]);
-
-  const openPdf = useCallback((pdfPath: string) => {
-    const { data } = supabase.storage.from('pdf-files').getPublicUrl(pdfPath);
-    window.open(data.publicUrl, '_blank');
   }, []);
 
   const editCert = useCallback((cert: CertRow) => {
     const formData = {
       id: cert.id,
-      cert_number: cert.cert_number,
-      cert_number_on_blank: '',
-      registry_col_d: cert.registry_col_d || '',
-      date_start_day: cert.date_start_day,
-      date_start_month: cert.date_start_month,
-      date_start_year: cert.date_start_year,
-      date_end_day: cert.date_end_day,
-      date_end_month: cert.date_end_month,
-      date_end_year: cert.date_end_year,
-      cert_body_name: cert.cert_body_name,
-      cert_body_address: cert.cert_body_address,
-      cert_body_number: cert.cert_body_number,
-      products: [cert.products],
-      quantity: cert.quantity,
-      quantity_unit: cert.quantity_unit || '',
-      code_num: cert.code_num,
-      code_nm: cert.code_nm,
-      norm_documents_1: cert.norm_documents,
-      norm_documents_2: '',
-      country: cert.country,
-      issued_to_org: cert.issued_to_org,
-      issued_to_address: cert.issued_to_address,
-      basis_documents: [cert.basis_document],
-      additional_info: [cert.additional_info],
-      head_name: cert.head_name,
-      dept_head_name: cert.dept_head_name,
+      blank_number: cert.blank_number || '',
+      date_from_day: cert.date_from_day || '',
+      date_from_month: cert.date_from_month || '',
+      date_from_year: cert.date_from_year || '',
+      date_to_day: cert.date_to_day || '',
+      date_to_month: cert.date_to_month || '',
+      date_to_year: cert.date_to_year || '',
+      cert_number: cert.cert_number || '',
+      provider_name_address: cert.provider_name_address || '',
+      director_name: cert.director_name || '',
+      services_list: cert.services_list ? JSON.parse(cert.services_list) : ['', '', ''],
+      normative_documents: cert.normative_documents || '',
+      conclusion_doc: cert.conclusion_doc || '',
+      tax_certificate: cert.tax_certificate || '',
+      inspection_body: cert.inspection_body || '',
+      head_name: cert.head_name || '',
       text_color_overrides: {},
-      serial_number: cert.serial_number,
-      copy_number: cert.copy_number,
-      cert_processing: cert.cert_processing,
-      total_cost: cert.total_cost,
-      amount_due: cert.amount_due,
-      tests: cert.tests,
-      invoice_number: cert.invoice_number,
-      invoice_date: cert.invoice_date,
-      inn: cert.inn,
     };
     
     // Save to draft and redirect
-    localStorage.setItem('cert_form_draft', JSON.stringify({ version: '1', data: formData }));
+    localStorage.setItem('cert_form_draft', JSON.stringify({ version: '2', data: formData }));
     router.push('/');
   }, [router]);
 
@@ -208,7 +151,7 @@ export default function RegistryPage() {
   }, []);
 
   const handleEditChange = useCallback((field: keyof CertRow, value: string) => {
-    setEditFormData(prev => ({ ...prev, [field]: applyAutoReplace(value) }));
+    setEditFormData(prev => ({ ...prev, [field]: value }));
   }, []);
 
   const saveInlineEdit = useCallback(async () => {
@@ -345,15 +288,9 @@ export default function RegistryPage() {
                         key={col}
                         className="bg-[#1d4ed8] text-white px-2 py-2 border border-blue-800 text-center whitespace-nowrap text-xs font-medium"
                       >
-                        <div>{col}</div>
-                        <div className="font-normal text-green-100 text-[10px]">
-                          {COLUMN_LABELS[col]}
-                        </div>
+                        {COLUMN_LABELS[col]}
                       </th>
                     ))}
-                    <th className="bg-[#1d4ed8] text-white px-2 py-2 border border-blue-800 text-xs font-medium">
-                      PDF
-                    </th>
                     <th className="bg-[#1d4ed8] text-white px-2 py-2 border border-blue-800 text-xs font-medium">
                       Действия
                     </th>
@@ -363,42 +300,23 @@ export default function RegistryPage() {
                   {certs.map((cert, idx) => {
                     const isEditing = cert.id === editingRowId;
                     const row = formToRegistryRow({
-                      cert_number: cert.cert_number,
-                      cert_number_on_blank: '',
-                      registry_col_d: cert.registry_col_d || '',
-                      date_start_day: cert.date_start_day,
-                      date_start_month: cert.date_start_month,
-                      date_start_year: cert.date_start_year,
-                      date_end_day: cert.date_end_day,
-                      date_end_month: cert.date_end_month,
-                      date_end_year: cert.date_end_year,
-                      cert_body_name: cert.cert_body_name,
-                      cert_body_address: cert.cert_body_address,
-                      cert_body_number: cert.cert_body_number,
-                      products: [cert.products],
-                      quantity: cert.quantity,
-                      quantity_unit: cert.quantity_unit || '',
-                      code_num: cert.code_num,
-                      code_nm: cert.code_nm,
-                      norm_documents_1: cert.norm_documents,
-                      norm_documents_2: '',
-                      country: cert.country,
-                      issued_to_org: cert.issued_to_org,
-                      issued_to_address: cert.issued_to_address,
-                      basis_documents: [cert.basis_document],
-                      additional_info: [cert.additional_info],
-                      head_name: cert.head_name,
-                      dept_head_name: cert.dept_head_name,
+                      blank_number: cert.blank_number || '',
+                      date_from_day: cert.date_from_day || '',
+                      date_from_month: cert.date_from_month || '',
+                      date_from_year: cert.date_from_year || '',
+                      date_to_day: cert.date_to_day || '',
+                      date_to_month: cert.date_to_month || '',
+                      date_to_year: cert.date_to_year || '',
+                      cert_number: cert.cert_number || '',
+                      provider_name_address: cert.provider_name_address || '',
+                      director_name: cert.director_name || '',
+                      services_list: cert.services_list ? JSON.parse(cert.services_list) : ['', '', ''],
+                      normative_documents: cert.normative_documents || '',
+                      conclusion_doc: cert.conclusion_doc || '',
+                      tax_certificate: cert.tax_certificate || '',
+                      inspection_body: cert.inspection_body || '',
+                      head_name: cert.head_name || '',
                       text_color_overrides: {},
-                      serial_number: cert.serial_number,
-                      copy_number: cert.copy_number,
-                      cert_processing: cert.cert_processing,
-                      total_cost: cert.total_cost,
-                      amount_due: cert.amount_due,
-                      tests: cert.tests,
-                      invoice_number: cert.invoice_number,
-                      invoice_date: cert.invoice_date,
-                      inn: cert.inn,
                     });
                     
                     return (
@@ -408,56 +326,43 @@ export default function RegistryPage() {
                         </td>
                         {ALL_COLUMNS.map(col => {
                           if (isEditing) {
-                            if (col === 'A') return <td key={col} className="px-1 py-1 border border-gray-300"><input className="w-20 text-xs p-1 border rounded" value={editFormData.serial_number || ''} onChange={e => handleEditChange('serial_number', e.target.value)} /></td>;
-                            if (col === 'C') return <td key={col} className="px-1 py-1 border border-gray-300"><input className="w-24 text-xs p-1 border rounded" value={editFormData.cert_number || ''} onChange={e => handleEditChange('cert_number', e.target.value)} /></td>;
-                            if (col === 'D') return <td key={col} className="px-1 py-1 border border-gray-300"><input className="w-16 text-xs p-1 border rounded" value={editFormData.registry_col_d || ''} onChange={e => handleEditChange('registry_col_d', e.target.value)} /></td>;
-                            if (col === 'E') return <td key={col} className="px-1 py-1 border border-gray-300"><input className="w-16 text-xs p-1 border rounded" value={editFormData.copy_number || ''} onChange={e => handleEditChange('copy_number', e.target.value)} /></td>;
-                            
-                            if (col === 'F') return (
+                            if (col === 'blank_number') return <td key={col} className="px-1 py-1 border border-gray-300"><input className="w-20 text-xs p-1 border rounded" value={editFormData.blank_number || ''} onChange={e => handleEditChange('blank_number', e.target.value)} /></td>;
+                            if (col === 'cert_number') return <td key={col} className="px-1 py-1 border border-gray-300"><input className="w-24 text-xs p-1 border rounded" value={editFormData.cert_number || ''} onChange={e => handleEditChange('cert_number', e.target.value)} /></td>;
+                            if (col === 'date_from') return (
                               <td key={col} className="px-1 py-1 border border-gray-300 text-xs">
                                 <div className="flex gap-1">
-                                  <input className="w-8 p-1 border rounded text-center" value={editFormData.date_start_day || ''} onChange={e => handleEditChange('date_start_day', e.target.value)} placeholder="DD" />
-                                  <select className="w-[80px] p-1 border rounded" value={editFormData.date_start_month || ''} onChange={e => handleEditChange('date_start_month', e.target.value)}>
+                                  <input className="w-8 p-1 border rounded text-center" value={editFormData.date_from_day || ''} onChange={e => handleEditChange('date_from_day', e.target.value)} placeholder="DD" />
+                                  <select className="w-[80px] p-1 border rounded" value={editFormData.date_from_month || ''} onChange={e => handleEditChange('date_from_month', e.target.value)}>
                                      <option value="">Месяц</option>
-                                     {TAJIK_MONTHS.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
+                                     {TAJIK_MONTHS.map(m => <option key={m} value={m}>{m}</option>)}
                                   </select>
-                                  <input className="w-12 p-1 border rounded text-center" value={editFormData.date_start_year || ''} onChange={e => handleEditChange('date_start_year', e.target.value)} placeholder="YYYY" />
+                                  <input className="w-12 p-1 border rounded text-center" value={editFormData.date_from_year || ''} onChange={e => handleEditChange('date_from_year', e.target.value)} placeholder="YYYY" />
                                 </div>
                               </td>
                             );
-                            if (col === 'G') return (
+                            if (col === 'date_to') return (
                               <td key={col} className="px-1 py-1 border border-gray-300 text-xs">
                                 <div className="flex gap-1">
-                                  <input className="w-8 p-1 border rounded text-center" value={editFormData.date_end_day || ''} onChange={e => handleEditChange('date_end_day', e.target.value)} placeholder="DD" />
-                                  <select className="w-[80px] p-1 border rounded" value={editFormData.date_end_month || ''} onChange={e => handleEditChange('date_end_month', e.target.value)}>
+                                  <input className="w-8 p-1 border rounded text-center" value={editFormData.date_to_day || ''} onChange={e => handleEditChange('date_to_day', e.target.value)} placeholder="DD" />
+                                  <select className="w-[80px] p-1 border rounded" value={editFormData.date_to_month || ''} onChange={e => handleEditChange('date_to_month', e.target.value)}>
                                      <option value="">Месяц</option>
-                                     {TAJIK_MONTHS.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
+                                     {TAJIK_MONTHS.map(m => <option key={m} value={m}>{m}</option>)}
                                   </select>
-                                  <input className="w-12 p-1 border rounded text-center" value={editFormData.date_end_year || ''} onChange={e => handleEditChange('date_end_year', e.target.value)} placeholder="YYYY" />
+                                  <input className="w-12 p-1 border rounded text-center" value={editFormData.date_to_year || ''} onChange={e => handleEditChange('date_to_year', e.target.value)} placeholder="YYYY" />
                                 </div>
                               </td>
                             );
-
-                            if (col === 'H') return <td key={col} className="px-1 py-1 border border-gray-300"><input className="w-32 text-xs p-1 border rounded" value={editFormData.issued_to_org || ''} onChange={e => { handleEditChange('issued_to_org', e.target.value); handleEditChange('issued_to_address', ''); }} /></td>;
-                            if (col === 'L') return <td key={col} className="px-1 py-1 border border-gray-300"><input className="w-16 text-xs p-1 border rounded" value={editFormData.cert_processing || ''} onChange={e => handleEditChange('cert_processing', e.target.value)} /></td>;
-                            if (col === 'M') return <td key={col} className="px-1 py-1 border border-gray-300"><input className="w-32 text-xs p-1 border rounded" value={editFormData.products || ''} onChange={e => handleEditChange('products', e.target.value)} /></td>;
-                            if (col === 'N') return <td key={col} className="px-1 py-1 border border-gray-300"><input className="w-16 text-xs p-1 border rounded" value={editFormData.quantity || ''} onChange={e => handleEditChange('quantity', e.target.value)} /></td>;
-                            if (col === 'N1') return <td key={col} className="px-1 py-1 border border-gray-300"><input className="w-16 text-xs p-1 border rounded" value={editFormData.quantity_unit || ''} onChange={e => handleEditChange('quantity_unit', e.target.value)} /></td>;
-                            if (col === 'O') return <td key={col} className="px-1 py-1 border border-gray-300"><input className="w-32 text-xs p-1 border rounded" value={editFormData.basis_document || ''} onChange={e => handleEditChange('basis_document', e.target.value)} /></td>;
-                            if (col === 'P') return <td key={col} className="px-1 py-1 border border-gray-300"><input className="w-20 text-xs p-1 border rounded" value={editFormData.country || ''} onChange={e => handleEditChange('country', e.target.value)} /></td>;
-                            if (col === 'Q') return <td key={col} className="px-1 py-1 border border-gray-300"><input className="w-20 text-xs p-1 border rounded" value={editFormData.total_cost || ''} onChange={e => handleEditChange('total_cost', e.target.value)} /></td>;
-                            if (col === 'R') return <td key={col} className="px-1 py-1 border border-gray-300"><input className="w-20 text-xs p-1 border rounded" value={editFormData.amount_due || ''} onChange={e => handleEditChange('amount_due', e.target.value)} /></td>;
-                            if (col === 'S') return <td key={col} className="px-1 py-1 border border-gray-300"><input className="w-32 text-xs p-1 border rounded" value={editFormData.tests || ''} onChange={e => handleEditChange('tests', e.target.value)} /></td>;
-                            if (col === 'T') return <td key={col} className="px-1 py-1 border border-gray-300"><input className="w-24 text-xs p-1 border rounded" value={editFormData.invoice_number || ''} onChange={e => handleEditChange('invoice_number', e.target.value)} /></td>;
-                            if (col === 'U') return <td key={col} className="px-1 py-1 border border-gray-300"><input className="w-24 text-xs p-1 border rounded" value={editFormData.invoice_date || ''} onChange={e => handleEditChange('invoice_date', e.target.value)} /></td>;
-                            if (col === 'V') return <td key={col} className="px-1 py-1 border border-gray-300"><input className="w-32 text-xs p-1 border rounded" value={editFormData.inn || ''} onChange={e => handleEditChange('inn', e.target.value)} /></td>;
+                            if (col === 'provider_name_address') return <td key={col} className="px-1 py-1 border border-gray-300"><input className="w-32 text-xs p-1 border rounded" value={editFormData.provider_name_address || ''} onChange={e => handleEditChange('provider_name_address', e.target.value)} /></td>;
+                            if (col === 'director_name') return <td key={col} className="px-1 py-1 border border-gray-300"><input className="w-32 text-xs p-1 border rounded" value={editFormData.director_name || ''} onChange={e => handleEditChange('director_name', e.target.value)} /></td>;
+                            if (col === 'services_list') return <td key={col} className="px-1 py-1 border border-gray-300 text-xs text-gray-500 italic">Редактируйте на бланке</td>;
+                            if (col === 'normative_documents') return <td key={col} className="px-1 py-1 border border-gray-300"><input className="w-32 text-xs p-1 border rounded" value={editFormData.normative_documents || ''} onChange={e => handleEditChange('normative_documents', e.target.value)} /></td>;
+                            if (col === 'conclusion_doc') return <td key={col} className="px-1 py-1 border border-gray-300"><input className="w-32 text-xs p-1 border rounded" value={editFormData.conclusion_doc || ''} onChange={e => handleEditChange('conclusion_doc', e.target.value)} /></td>;
+                            if (col === 'tax_certificate') return <td key={col} className="px-1 py-1 border border-gray-300"><input className="w-32 text-xs p-1 border rounded" value={editFormData.tax_certificate || ''} onChange={e => handleEditChange('tax_certificate', e.target.value)} /></td>;
+                            if (col === 'inspection_body') return <td key={col} className="px-1 py-1 border border-gray-300"><input className="w-32 text-xs p-1 border rounded" value={editFormData.inspection_body || ''} onChange={e => handleEditChange('inspection_body', e.target.value)} /></td>;
+                            if (col === 'head_name') return <td key={col} className="px-1 py-1 border border-gray-300"><input className="w-32 text-xs p-1 border rounded" value={editFormData.head_name || ''} onChange={e => handleEditChange('head_name', e.target.value)} /></td>;
                             
-                            // Default for uneditable columns (B, I, J, K)
                             return (
-                              <td
-                                key={col}
-                                className="px-2 py-2 border border-gray-300 text-center text-xs bg-gray-100"
-                              >
+                              <td key={col} className="px-2 py-2 border border-gray-300 text-center text-xs bg-gray-100">
                                 {row[col as keyof typeof row] || '\u00A0'}
                               </td>
                             );
@@ -473,18 +378,6 @@ export default function RegistryPage() {
                             );
                           }
                         })}
-                        <td className="px-2 py-2 border border-gray-300 text-center">
-                          {cert.pdf_storage_path ? (
-                            <button
-                              onClick={() => openPdf(cert.pdf_storage_path!)}
-                              className="text-blue-500 hover:text-blue-700 text-xs"
-                            >
-                              Открыть
-                            </button>
-                          ) : (
-                            <span className="text-gray-300 text-xs">—</span>
-                          )}
-                        </td>
                         {isEditing ? (
                           <td className="px-2 py-2 border border-gray-300 text-center space-x-2 whitespace-nowrap">
                             <button
@@ -517,7 +410,7 @@ export default function RegistryPage() {
                               В строке
                             </button>
                             <button
-                              onClick={() => deleteCert(cert.id, cert.pdf_storage_path)}
+                              onClick={() => deleteCert(cert.id)}
                               className="text-red-500 hover:text-red-700 text-xs"
                             >
                               Удалить

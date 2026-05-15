@@ -87,3 +87,5 @@ export function formToRegistryRow(data: CertificateFormData): Record<string, str
     head_name: data.head_name,
   };
 }
+
+export const TAJIK_MONTHS = ['январ', 'феврал', 'март', 'апрел', 'май', 'июн', 'июл', 'август', 'сентябр', 'октябр', 'ноябр', 'декабр'];

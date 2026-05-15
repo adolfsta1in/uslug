@@ -9,8 +9,6 @@ export default function Navigation() {
   const links = [
     { href: '/', label: 'Новый сертификат' },
     { href: '/registry', label: 'Реестр' },
-    { href: '/appendix', label: 'Приложения' },
-    { href: '/settings', label: 'Настройки печати' },
   ];
 
   return (
