@@ -21,6 +21,9 @@ export interface CertificateFormData {
   text_color_overrides: Record<string, Record<number, '#000' | '#fff'>>;
 }
 
+export const FORM_DRAFT_KEY = 'cert_form_draft_v2';
+export const FORM_DRAFT_VERSION = '1';
+
 export const EMPTY_FORM_DATA: CertificateFormData = {
   blank_number: '',
   date_from_day: '',
@@ -40,6 +43,37 @@ export const EMPTY_FORM_DATA: CertificateFormData = {
   head_name: '',
   text_color_overrides: {},
 };
+
+export function normalizeServicesList(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    const normalized = value.map(item => String(item ?? ''));
+    return normalized.length > 0 ? normalized : EMPTY_FORM_DATA.services_list;
+  }
+
+  if (typeof value !== 'string' || value.trim() === '') {
+    return EMPTY_FORM_DATA.services_list;
+  }
+
+  try {
+    const parsed = JSON.parse(value);
+    if (Array.isArray(parsed)) {
+      const normalized = parsed.map(item => String(item ?? ''));
+      return normalized.length > 0 ? normalized : EMPTY_FORM_DATA.services_list;
+    }
+  } catch {}
+
+  const separator = value.includes('|') ? '|' : '\n';
+  const normalized = value
+    .split(separator)
+    .map(item => item.trim())
+    .filter(Boolean);
+
+  return normalized.length > 0 ? normalized : EMPTY_FORM_DATA.services_list;
+}
+
+export function serializeServicesList(value: string[]): string {
+  return JSON.stringify(value);
+}
 
 export const ALL_COLUMNS = [
   'blank_number',
@@ -79,7 +113,7 @@ export function formToRegistryRow(data: CertificateFormData): Record<string, str
     cert_number: data.cert_number,
     provider_name_address: data.provider_name_address,
     director_name: data.director_name,
-    services_list: data.services_list.filter(Boolean).join(' | '),
+    services_list: normalizeServicesList(data.services_list).filter(Boolean).join(' | '),
     normative_documents: data.normative_documents,
     conclusion_doc: data.conclusion_doc,
     tax_certificate: data.tax_certificate,

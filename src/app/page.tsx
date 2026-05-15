@@ -6,12 +6,16 @@ import { useState, useCallback, useRef, useEffect } from 'react';
 import {
   CertificateFormData,
   EMPTY_FORM_DATA,
+  FORM_DRAFT_KEY,
+  FORM_DRAFT_VERSION,
   formToRegistryRow,
   ALL_COLUMNS,
   COLUMN_LABELS,
+  normalizeServicesList,
+  serializeServicesList,
 } from '@/lib/certificateTypes';
 import CertificateEditor from './components/CertificateEditor';
-import { supabase } from '@/lib/supabase';
+import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 import * as XLSX from 'xlsx';
 import { applyAutoReplace, initAutoReplacements } from '@/lib/autoReplace';
 
@@ -29,9 +33,6 @@ const UNIQUE_FIELDS: (keyof CertificateFormData)[] = [
   'cert_number',
 ];
 
-const FORM_DRAFT_KEY = 'cert_form_draft_v2';
-const FORM_DRAFT_VERSION = '1';
-
 function loadDraft(): CertificateFormData | null {
   if (typeof window === 'undefined') return null;
   try {
@@ -44,9 +45,7 @@ function loadDraft(): CertificateFormData | null {
     return {
       ...EMPTY_FORM_DATA,
       ...data,
-      services_list: Array.isArray(data.services_list) && data.services_list.length > 0
-        ? data.services_list
-        : EMPTY_FORM_DATA.services_list,
+      services_list: normalizeServicesList(data.services_list),
       text_color_overrides: data.text_color_overrides && typeof data.text_color_overrides === 'object'
         ? data.text_color_overrides
         : EMPTY_FORM_DATA.text_color_overrides,
@@ -214,6 +213,11 @@ export default function Home() {
     setSaved(false);
     setError(null);
 
+    if (!isSupabaseConfigured) {
+      setError('Ошибка при сохранении: Supabase не настроен. Добавьте NEXT_PUBLIC_SUPABASE_URL и NEXT_PUBLIC_SUPABASE_ANON_KEY в Vercel/локальный .env.local.');
+      return;
+    }
+
     try {
       const payload: Record<string, string | null> = {
         blank_number: formData.blank_number,
@@ -226,7 +230,7 @@ export default function Home() {
         cert_number: formData.cert_number,
         provider_name_address: formData.provider_name_address,
         director_name: formData.director_name,
-        services_list: formData.services_list.filter(Boolean).join(' | '),
+        services_list: serializeServicesList(formData.services_list),
         normative_documents: formData.normative_documents,
         conclusion_doc: formData.conclusion_doc,
         tax_certificate: formData.tax_certificate,
@@ -235,6 +239,7 @@ export default function Home() {
       };
 
       let saveError;
+      let savedId: string | undefined;
       if (formData.id) {
         const { error } = await supabase
           .from('certificates')
@@ -242,10 +247,13 @@ export default function Home() {
           .eq('id', formData.id);
         saveError = error;
       } else {
-        const { error } = await supabase
+        const { data, error } = await supabase
           .from('certificates')
-          .insert(payload);
+          .insert(payload)
+          .select('id')
+          .single();
         saveError = error;
+        savedId = data?.id;
       }
 
       if (saveError) {
@@ -253,10 +261,18 @@ export default function Home() {
         return;
       }
 
+      if (savedId) {
+        setFormData(prev => ({ ...prev, id: savedId }));
+      }
       setSaved(true);
       setTimeout(() => setSaved(false), 3000);
-    } catch {
-      setError('Не удалось сохранить в базу данных');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'unknown error';
+      setError(
+        message.includes('Failed to fetch')
+          ? 'Ошибка при сохранении: не удалось подключиться к Supabase. Проверьте NEXT_PUBLIC_SUPABASE_URL и NEXT_PUBLIC_SUPABASE_ANON_KEY в Vercel/локальном .env.local.'
+          : 'Не удалось сохранить в базу данных: ' + message,
+      );
     }
   }, [formData]);
 
@@ -316,9 +332,7 @@ export default function Home() {
     setFormData({
       ...EMPTY_FORM_DATA,
       ...tData,
-      services_list: Array.isArray(tData.services_list) && tData.services_list.length > 0
-        ? tData.services_list
-        : EMPTY_FORM_DATA.services_list,
+      services_list: normalizeServicesList(tData.services_list),
       text_color_overrides: tData.text_color_overrides && typeof tData.text_color_overrides === 'object'
         ? tData.text_color_overrides
         : EMPTY_FORM_DATA.text_color_overrides,

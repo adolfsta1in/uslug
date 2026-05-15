@@ -4,7 +4,15 @@ export const dynamic = 'force-dynamic';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { formToRegistryRow, ALL_COLUMNS, COLUMN_LABELS, TAJIK_MONTHS } from '@/lib/certificateTypes';
+import {
+  FORM_DRAFT_KEY,
+  FORM_DRAFT_VERSION,
+  formToRegistryRow,
+  ALL_COLUMNS,
+  COLUMN_LABELS,
+  TAJIK_MONTHS,
+  normalizeServicesList,
+} from '@/lib/certificateTypes';
 import { supabase } from '@/lib/supabase';
 
 interface CertRow {
@@ -126,7 +134,7 @@ export default function RegistryPage() {
       cert_number: cert.cert_number || '',
       provider_name_address: cert.provider_name_address || '',
       director_name: cert.director_name || '',
-      services_list: cert.services_list ? JSON.parse(cert.services_list) : ['', '', ''],
+      services_list: normalizeServicesList(cert.services_list),
       normative_documents: cert.normative_documents || '',
       conclusion_doc: cert.conclusion_doc || '',
       tax_certificate: cert.tax_certificate || '',
@@ -136,7 +144,7 @@ export default function RegistryPage() {
     };
     
     // Save to draft and redirect
-    localStorage.setItem('cert_form_draft', JSON.stringify({ version: '2', data: formData }));
+    localStorage.setItem(FORM_DRAFT_KEY, JSON.stringify({ version: FORM_DRAFT_VERSION, data: formData }));
     router.push('/');
   }, [router]);
 
@@ -310,7 +318,7 @@ export default function RegistryPage() {
                       cert_number: cert.cert_number || '',
                       provider_name_address: cert.provider_name_address || '',
                       director_name: cert.director_name || '',
-                      services_list: cert.services_list ? JSON.parse(cert.services_list) : ['', '', ''],
+                      services_list: normalizeServicesList(cert.services_list),
                       normative_documents: cert.normative_documents || '',
                       conclusion_doc: cert.conclusion_doc || '',
                       tax_certificate: cert.tax_certificate || '',

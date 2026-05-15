@@ -98,8 +98,8 @@ export default function DraggableField({
         onMouseDown={handleMouseDown}
         style={style}
         placeholder={placeholder}
-        disabled={calibrationMode}
-        className={calibrationMode ? 'pointer-events-none' : ''}
+        readOnly={calibrationMode}
+        className="cert-field"
       />
     );
   }
@@ -112,8 +112,8 @@ export default function DraggableField({
       onMouseDown={handleMouseDown}
       style={style}
       placeholder={placeholder}
-      disabled={calibrationMode}
-      className={calibrationMode ? 'pointer-events-none' : ''}
+      readOnly={calibrationMode}
+      className="cert-field"
     />
   );
 }
