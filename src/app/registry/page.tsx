@@ -337,13 +337,13 @@ export default function RegistryPage() {
               <table className="w-full border-collapse text-sm">
                 <thead>
                   <tr>
-                    <th className="bg-[#2E7D32] text-white px-2 py-2 border border-green-800 text-xs font-medium">
+                    <th className="bg-[#1d4ed8] text-white px-2 py-2 border border-blue-800 text-xs font-medium">
                       #
                     </th>
                     {ALL_COLUMNS.map(col => (
                       <th
                         key={col}
-                        className="bg-[#2E7D32] text-white px-2 py-2 border border-green-800 text-center whitespace-nowrap text-xs font-medium"
+                        className="bg-[#1d4ed8] text-white px-2 py-2 border border-blue-800 text-center whitespace-nowrap text-xs font-medium"
                       >
                         <div>{col}</div>
                         <div className="font-normal text-green-100 text-[10px]">
@@ -351,10 +351,10 @@ export default function RegistryPage() {
                         </div>
                       </th>
                     ))}
-                    <th className="bg-[#2E7D32] text-white px-2 py-2 border border-green-800 text-xs font-medium">
+                    <th className="bg-[#1d4ed8] text-white px-2 py-2 border border-blue-800 text-xs font-medium">
                       PDF
                     </th>
-                    <th className="bg-[#2E7D32] text-white px-2 py-2 border border-green-800 text-xs font-medium">
+                    <th className="bg-[#1d4ed8] text-white px-2 py-2 border border-blue-800 text-xs font-medium">
                       Действия
                     </th>
                   </tr>
@@ -504,7 +504,7 @@ export default function RegistryPage() {
                           <td className="px-2 py-2 border border-gray-300 text-center space-x-2 whitespace-nowrap">
                             <button
                               onClick={() => editCert(cert)}
-                              className="text-green-600 hover:text-green-800 text-xs"
+                              className="text-green-600 hover:text-blue-800 text-xs"
                               title="Редактировать на бланке"
                             >
                               В бланк

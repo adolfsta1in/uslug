@@ -15,7 +15,6 @@ import { supabase } from '@/lib/supabase';
 import * as XLSX from 'xlsx';
 import { applyAutoReplace, initAutoReplacements } from '@/lib/autoReplace';
 
-// ─── Templates ───────────────────────────────────────────────────────────────
 interface CertTemplate {
   id: string;
   name: string;
@@ -23,18 +22,14 @@ interface CertTemplate {
   created_at: string;
 }
 
-// Fields unique per certificate — cleared when loading a template
 const UNIQUE_FIELDS: (keyof CertificateFormData)[] = [
+  'blank_number',
+  'date_from_day', 'date_from_month', 'date_from_year',
+  'date_to_day', 'date_to_month', 'date_to_year',
   'cert_number',
-  'cert_number_on_blank',
-  'date_start_day', 'date_start_month', 'date_start_year',
-  'date_end_day', 'date_end_month', 'date_end_year',
-  'serial_number', 'registry_col_d', 'copy_number',
-  'invoice_number', 'invoice_date',
 ];
 
-// localStorage key + version for form draft autosave
-const FORM_DRAFT_KEY = 'cert_form_draft';
+const FORM_DRAFT_KEY = 'cert_form_draft_v2';
 const FORM_DRAFT_VERSION = '1';
 
 function loadDraft(): CertificateFormData | null {
@@ -46,19 +41,12 @@ function loadDraft(): CertificateFormData | null {
     if (parsed?.version !== FORM_DRAFT_VERSION) return null;
     const data = parsed.data;
     if (!data || typeof data !== 'object') return null;
-    // Merge with EMPTY_FORM_DATA so new fields get defaults
     return {
       ...EMPTY_FORM_DATA,
       ...data,
-      products: Array.isArray(data.products) && data.products.length > 0
-        ? data.products
-        : EMPTY_FORM_DATA.products,
-      basis_documents: Array.isArray(data.basis_documents) && data.basis_documents.length > 0
-        ? data.basis_documents
-        : EMPTY_FORM_DATA.basis_documents,
-      additional_info: Array.isArray(data.additional_info)
-        ? (data.additional_info.length > 0 ? data.additional_info : [''])
-        : [typeof data.additional_info === 'string' ? data.additional_info : ''],
+      services_list: Array.isArray(data.services_list) && data.services_list.length > 0
+        ? data.services_list
+        : EMPTY_FORM_DATA.services_list,
       text_color_overrides: data.text_color_overrides && typeof data.text_color_overrides === 'object'
         ? data.text_color_overrides
         : EMPTY_FORM_DATA.text_color_overrides,
@@ -86,17 +74,10 @@ function toTemplateData(data: CertificateFormData): Partial<CertificateFormData>
 export default function Home() {
   const [formData, setFormData] = useState<CertificateFormData>(EMPTY_FORM_DATA);
   const [draftLoaded, setDraftLoaded] = useState(false);
-  const [, setPdfUrl] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [saved, setSaved] = useState(false);
-  const [showRegistry, setShowRegistry] = useState(false);
   const [calibrationMode, setCalibrationMode] = useState(false);
-  const [autoQuantityLoading, setAutoQuantityLoading] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const currentPdfFileRef = useRef<File | null>(null);
-  const userEditedQuantityRef = useRef(false);
 
   // Templates
   const [templates, setTemplates] = useState<CertTemplate[]>([]);
@@ -109,14 +90,12 @@ export default function Home() {
   const [templateAutoSaveStatus, setTemplateAutoSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const templateAutoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Load draft from localStorage on mount (client-only to avoid SSR hydration issues)
   useEffect(() => {
     const draft = loadDraft();
     if (draft) setFormData(draft);
     setDraftLoaded(true);
   }, []);
 
-  // Autosave form draft on any change (debounced)
   useEffect(() => {
     if (!draftLoaded) return;
     const t = setTimeout(() => saveDraft(formData), 300);
@@ -166,14 +145,11 @@ export default function Home() {
   }, [loadTemplates]);
 
   const updateField = useCallback((key: keyof CertificateFormData, value: string) => {
-    if (key === 'quantity' || key === 'quantity_unit') {
-      userEditedQuantityRef.current = true;
-    }
     setFormData(prev => ({ ...prev, [key]: applyAutoReplace(value) }));
   }, []);
 
   const updateArrayField = useCallback(
-    (key: 'products' | 'basis_documents' | 'additional_info', index: number, value: string) => {
+    (key: 'services_list', index: number, value: string) => {
       setFormData(prev => {
         const arr = [...prev[key]];
         arr[index] = applyAutoReplace(value);
@@ -183,11 +159,19 @@ export default function Home() {
     [],
   );
 
-  const addArrayRow = useCallback((key: 'products' | 'basis_documents' | 'additional_info') => {
+  const addArrayRow = useCallback((key: 'services_list') => {
     setFormData(prev => ({ ...prev, [key]: [...prev[key], ''] }));
-    // Adding a product row means new data coming — let auto-quantity recompute
-    if (key === 'products') userEditedQuantityRef.current = false;
   }, []);
+
+  const removeArrayRow = useCallback(
+    (key: 'services_list', index: number) => {
+      setFormData(prev => {
+        if (prev[key].length <= 1) return prev;
+        return { ...prev, [key]: prev[key].filter((_, i) => i !== index) };
+      });
+    },
+    [],
+  );
 
   const updateTextColor = useCallback((field: string, start: number, end: number, color: '#000' | '#fff') => {
     if (start === end) return;
@@ -206,93 +190,6 @@ export default function Home() {
     });
   }, []);
 
-  const removeArrayRow = useCallback(
-    (key: 'products' | 'basis_documents' | 'additional_info', index: number) => {
-      setFormData(prev => {
-        if (prev[key].length <= 1) return prev;
-        return { ...prev, [key]: prev[key].filter((_, i) => i !== index) };
-      });
-    },
-    [],
-  );
-
-  // Auto-compute quantity from products via DeepSeek (debounced)
-  useEffect(() => {
-    if (!draftLoaded) return;
-    if (userEditedQuantityRef.current) return;
-    const joined = formData.products.filter(Boolean).join(' | ').trim();
-    if (!joined) return;
-
-    const t = setTimeout(async () => {
-      setAutoQuantityLoading(true);
-      try {
-        const res = await fetch('/api/parse-quantity', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ products: formData.products.filter(Boolean) }),
-        });
-        if (res.ok) {
-          const json = await res.json();
-          if ((json.quantity || json.unit) && !userEditedQuantityRef.current) {
-            setFormData(prev => ({
-              ...prev,
-              quantity: json.quantity || prev.quantity,
-              quantity_unit: json.unit || prev.quantity_unit,
-            }));
-          }
-        }
-      } catch {}
-      setAutoQuantityLoading(false);
-    }, 1500);
-
-    return () => clearTimeout(t);
-  }, [formData.products, draftLoaded]);
-
-  // PDF upload handler
-  const handleFile = useCallback(async (file: File) => {
-    if (file.type !== 'application/pdf') {
-      setError('Пожалуйста, загрузите PDF файл');
-      return;
-    }
-
-    setLoading(true);
-    setError(null);
-    setCopied(false);
-    setActiveTemplateId(null);
-    setActiveTemplateName(null);
-    setTemplateAutoSaveStatus('idle');
-
-    const url = URL.createObjectURL(file);
-    setPdfUrl(url);
-    currentPdfFileRef.current = file;
-
-    const fd = new FormData();
-    fd.append('pdf', file);
-
-    try {
-      const res = await fetch('/api/parse', { method: 'POST', body: fd });
-      const json = await res.json();
-
-      if (!res.ok) {
-        setError(json.error || 'Ошибка при обработке PDF');
-      } else {
-        // PDF parsed quantity — treat as auto-filled, allow auto effect to overwrite later
-        userEditedQuantityRef.current = false;
-        setFormData(prev => ({ ...prev, ...json.data }));
-      }
-    } catch {
-      setError('Не удалось подключиться к серверу');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  const onFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) handleFile(file);
-  }, [handleFile]);
-
-  // Copy TAB-separated row for Excel
   const copyRow = useCallback(async () => {
     const row = formToRegistryRow(formData);
     const values = ALL_COLUMNS.map(col => row[col as keyof typeof row] || '');
@@ -313,71 +210,31 @@ export default function Home() {
     }
   }, [formData]);
 
-  // Save to Supabase registry
   const saveToRegistry = useCallback(async () => {
     setSaved(false);
     setError(null);
 
     try {
-      let pdfStoragePath: string | null = null;
-
-      // Upload PDF to Supabase Storage if available
-      const pdfFile = currentPdfFileRef.current;
-      if (pdfFile) {
-        const fileName = `${Date.now()}_${pdfFile.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
-        const { error: uploadError } = await supabase.storage
-          .from('pdf-files')
-          .upload(fileName, pdfFile, { contentType: 'application/pdf', upsert: false });
-
-        if (uploadError) {
-          console.warn('PDF upload failed:', uploadError.message);
-        } else {
-          pdfStoragePath = fileName;
-        }
-      }
-
       const payload: Record<string, string | null> = {
+        blank_number: formData.blank_number,
+        date_from_day: formData.date_from_day,
+        date_from_month: formData.date_from_month,
+        date_from_year: formData.date_from_year,
+        date_to_day: formData.date_to_day,
+        date_to_month: formData.date_to_month,
+        date_to_year: formData.date_to_year,
         cert_number: formData.cert_number,
-        registry_col_d: formData.registry_col_d,
-        date_start_day: formData.date_start_day,
-        date_start_month: formData.date_start_month,
-        date_start_year: formData.date_start_year,
-        date_end_day: formData.date_end_day,
-        date_end_month: formData.date_end_month,
-        date_end_year: formData.date_end_year,
-        cert_body_name: formData.cert_body_name,
-        cert_body_address: formData.cert_body_address,
-        cert_body_number: formData.cert_body_number,
-        products: formData.products.filter(Boolean).join(' '),
-        quantity: formData.quantity,
-        quantity_unit: formData.quantity_unit,
-        code_num: formData.code_num,
-        code_nm: formData.code_nm,
-        norm_documents: [formData.norm_documents_1, formData.norm_documents_2].filter(Boolean).join(' '),
-        country: formData.country,
-        issued_to_org: formData.issued_to_org,
-        issued_to_address: formData.issued_to_address,
-        basis_document: formData.basis_documents.filter(Boolean).join(' '),
-        additional_info: formData.additional_info.filter(Boolean).join(' '),
+        provider_name_address: formData.provider_name_address,
+        director_name: formData.director_name,
+        services_list: formData.services_list.filter(Boolean).join(' | '),
+        normative_documents: formData.normative_documents,
+        conclusion_doc: formData.conclusion_doc,
+        tax_certificate: formData.tax_certificate,
+        inspection_body: formData.inspection_body,
         head_name: formData.head_name,
-        dept_head_name: formData.dept_head_name,
-        serial_number: formData.serial_number,
-        copy_number: formData.copy_number,
-        cert_processing: formData.cert_processing,
-        total_cost: formData.total_cost,
-        amount_due: formData.amount_due,
-        tests: formData.tests,
-        invoice_number: formData.invoice_number,
-        invoice_date: formData.invoice_date,
-        inn: formData.inn,
       };
 
-      if (pdfStoragePath) {
-        payload.pdf_storage_path = pdfStoragePath;
-      }
-
       let saveError;
-
       if (formData.id) {
         const { error } = await supabase
           .from('certificates')
@@ -387,10 +244,7 @@ export default function Home() {
       } else {
         const { error } = await supabase
           .from('certificates')
-          .insert({
-            ...payload,
-            pdf_storage_path: pdfStoragePath, // Make sure it can be null on insert
-          });
+          .insert(payload);
         saveError = error;
       }
 
@@ -406,23 +260,16 @@ export default function Home() {
     }
   }, [formData]);
 
-  // Download Excel
   const downloadExcel = useCallback(() => {
     const row = formToRegistryRow(formData);
     const headers = ALL_COLUMNS.map(col => COLUMN_LABELS[col]);
     const values = ALL_COLUMNS.map(col => row[col as keyof typeof row] || '');
     const ws = XLSX.utils.aoa_to_sheet([headers, values]);
 
-    // "Оформление сертификата" header spans I-L (indices 8..11)
-    if (!ws['!merges']) ws['!merges'] = [];
-    ws['!merges'].push({ s: { r: 0, c: 8 }, e: { r: 0, c: 11 } });
-    ws['I1'] = { v: 'Оформление сертификата', t: 's' };
-
     ws['!cols'] = ALL_COLUMNS.map(col => {
-      if (['I', 'J', 'K', 'D'].includes(col)) return { wch: 5 };
-      if (['A', 'B', 'L', 'N1'].includes(col)) return { wch: 6 };
-      if (['H', 'M', 'O'].includes(col)) return { wch: 35 };
-      return { wch: 15 };
+      if (['blank_number', 'date_from', 'date_to'].includes(col)) return { wch: 15 };
+      if (['services_list', 'provider_name_address'].includes(col)) return { wch: 40 };
+      return { wch: 20 };
     });
 
     const wb = XLSX.utils.book_new();
@@ -430,28 +277,21 @@ export default function Home() {
     XLSX.writeFile(wb, 'реестр_сертификатов.xlsx');
   }, [formData]);
 
-  // Print
   const handlePrint = useCallback(() => {
     window.print();
   }, []);
 
-  // Clear form
   const clearForm = useCallback(() => {
     setFormData(EMPTY_FORM_DATA);
-    setPdfUrl(null);
     setError(null);
     setCopied(false);
     setSaved(false);
-    userEditedQuantityRef.current = false;
-    currentPdfFileRef.current = null;
     setActiveTemplateId(null);
     setActiveTemplateName(null);
     setTemplateAutoSaveStatus('idle');
     try { localStorage.removeItem(FORM_DRAFT_KEY); } catch {}
-    if (fileInputRef.current) fileInputRef.current.value = '';
   }, []);
 
-  // Save current form as template
   const handleSaveTemplate = useCallback(async () => {
     const name = templateName.trim();
     if (!name) return;
@@ -471,42 +311,30 @@ export default function Home() {
     setTemplateSaving(false);
   }, [formData, templateName, loadTemplates]);
 
-  // Load template into form (clears unique fields)
   const handleLoadTemplate = useCallback((t: CertTemplate) => {
     const tData = t.data || {};
     setFormData({
       ...EMPTY_FORM_DATA,
       ...tData,
-      products: Array.isArray(tData.products) && tData.products.length > 0
-        ? tData.products
-        : EMPTY_FORM_DATA.products,
-      basis_documents: Array.isArray(tData.basis_documents) && tData.basis_documents.length > 0
-        ? tData.basis_documents
-        : EMPTY_FORM_DATA.basis_documents,
-      additional_info: Array.isArray(tData.additional_info)
-        ? (tData.additional_info.length > 0 ? tData.additional_info : [''])
-        : [typeof tData.additional_info === 'string' ? tData.additional_info : ''],
+      services_list: Array.isArray(tData.services_list) && tData.services_list.length > 0
+        ? tData.services_list
+        : EMPTY_FORM_DATA.services_list,
       text_color_overrides: tData.text_color_overrides && typeof tData.text_color_overrides === 'object'
         ? tData.text_color_overrides
         : EMPTY_FORM_DATA.text_color_overrides,
+      blank_number: '',
       cert_number: '',
-      cert_number_on_blank: '',
-      registry_col_d: '',
-      date_start_day: '', date_start_month: '', date_start_year: '',
-      date_end_day: '', date_end_month: '', date_end_year: '',
-      serial_number: '', copy_number: '',
-      invoice_number: '', invoice_date: '',
+      date_from_day: '', date_from_month: '', date_from_year: '',
+      date_to_day: '', date_to_month: '', date_to_year: '',
     });
     setActiveTemplateId(t.id);
     setActiveTemplateName(t.name);
     setTemplateAutoSaveStatus('idle');
-    userEditedQuantityRef.current = false;
     setShowTemplatesPanel(false);
     setTemplateSearch('');
     setError(null);
   }, []);
 
-  // Delete template
   const handleDeleteTemplate = useCallback(async (id: string) => {
     await supabase.from('templates').delete().eq('id', id);
     setTemplates(prev => prev.filter(t => t.id !== id));
@@ -524,26 +352,15 @@ export default function Home() {
         <div className="flex flex-wrap items-center gap-3 mb-4 no-print">
           <button
             onClick={handlePrint}
-            className="px-5 py-2.5 rounded-lg font-medium bg-[#2E7D32] text-white hover:bg-green-800 transition-colors text-sm"
+            className="px-5 py-2.5 rounded-lg font-medium bg-blue-700 text-white hover:bg-blue-800 transition-colors text-sm"
           >
             Печать
           </button>
 
-          <label className="px-5 py-2.5 rounded-lg font-medium bg-indigo-600 text-white hover:bg-indigo-700 transition-colors text-sm cursor-pointer">
-            Загрузить PDF
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".pdf"
-              onChange={onFileSelect}
-              className="hidden"
-            />
-          </label>
-
           <button
             onClick={copyRow}
             className={`px-5 py-2.5 rounded-lg font-medium text-white transition-colors text-sm ${
-              copied ? 'bg-green-600' : 'bg-blue-600 hover:bg-blue-700'
+              copied ? 'bg-blue-600' : 'bg-blue-500 hover:bg-blue-600'
             }`}
           >
             {copied ? 'Скопировано!' : 'Копировать строку'}
@@ -552,7 +369,7 @@ export default function Home() {
           <button
             onClick={saveToRegistry}
             className={`px-5 py-2.5 rounded-lg font-medium text-white transition-colors text-sm ${
-              saved ? 'bg-green-600' : 'bg-purple-600 hover:bg-purple-700'
+              saved ? 'bg-blue-600' : 'bg-indigo-600 hover:bg-indigo-700'
             }`}
           >
             {saved ? 'Сохранено!' : (formData.id ? 'Обновить в реестре' : 'В реестр')}
@@ -560,7 +377,7 @@ export default function Home() {
 
           <button
             onClick={downloadExcel}
-            className="px-5 py-2.5 rounded-lg font-medium bg-orange-500 text-white hover:bg-orange-600 transition-colors text-sm"
+            className="px-5 py-2.5 rounded-lg font-medium bg-teal-600 text-white hover:bg-teal-700 transition-colors text-sm"
           >
             Excel
           </button>
@@ -576,7 +393,7 @@ export default function Home() {
           <div className="relative">
             <button
               onClick={() => setShowTemplatesPanel(v => !v)}
-              className="px-5 py-2.5 rounded-lg font-medium bg-teal-600 text-white hover:bg-teal-700 transition-colors text-sm"
+              className="px-5 py-2.5 rounded-lg font-medium bg-cyan-600 text-white hover:bg-cyan-700 transition-colors text-sm"
             >
               Шаблоны {templates.length > 0 && `(${templates.length})`}
             </button>
@@ -600,7 +417,7 @@ export default function Home() {
                             onChange={e => setTemplateSearch(e.target.value)}
                             placeholder="Поиск…"
                             autoFocus
-                            className="w-full px-2 py-1.5 pr-6 border border-gray-300 rounded text-xs focus:border-teal-500 focus:outline-none"
+                            className="w-full px-2 py-1.5 pr-6 border border-gray-300 rounded text-xs focus:border-cyan-500 focus:outline-none"
                           />
                           {templateSearch && (
                             <button
@@ -621,7 +438,7 @@ export default function Home() {
                               <div key={t.id} className="flex items-center justify-between gap-2 px-2 py-1.5 rounded hover:bg-gray-50">
                                 <button
                                   onClick={() => handleLoadTemplate(t)}
-                                  className="text-sm text-left text-gray-800 hover:text-teal-700 font-medium flex-1 truncate"
+                                  className="text-sm text-left text-gray-800 hover:text-cyan-700 font-medium flex-1 truncate"
                                 >
                                   {t.name}
                                 </button>
@@ -647,13 +464,13 @@ export default function Home() {
                       value={templateName}
                       onChange={e => setTemplateName(e.target.value)}
                       onKeyDown={e => e.key === 'Enter' && handleSaveTemplate()}
-                      placeholder="Название (напр. ООО Далери)"
-                      className="flex-1 px-2 py-1.5 border border-gray-300 rounded text-xs focus:border-teal-500 focus:outline-none"
+                      placeholder="Название (напр. Шаблон 1)"
+                      className="flex-1 px-2 py-1.5 border border-gray-300 rounded text-xs focus:border-cyan-500 focus:outline-none"
                     />
                     <button
                       onClick={handleSaveTemplate}
                       disabled={!templateName.trim() || templateSaving}
-                      className="px-3 py-1.5 bg-teal-600 text-white rounded text-xs font-medium disabled:opacity-40 hover:bg-teal-700"
+                      className="px-3 py-1.5 bg-cyan-600 text-white rounded text-xs font-medium disabled:opacity-40 hover:bg-cyan-700"
                     >
                       {templateSaving ? '...' : 'Сохранить'}
                     </button>
@@ -664,7 +481,7 @@ export default function Home() {
           </div>
 
           {activeTemplateName && (
-            <div className="text-xs text-teal-700 bg-teal-50 border border-teal-200 rounded-lg px-3 py-2">
+            <div className="text-xs text-cyan-800 bg-cyan-50 border border-cyan-200 rounded-lg px-3 py-2">
               Шаблон: <span className="font-semibold">{activeTemplateName}</span>
               {templateAutoSaveStatus === 'saving' && <span className="ml-2 text-amber-600">сохраняется...</span>}
               {templateAutoSaveStatus === 'saved' && <span className="ml-2 text-green-600">сохранен</span>}
@@ -678,37 +495,21 @@ export default function Home() {
               className={`px-4 py-2 rounded-lg font-medium text-sm transition-colors ${
                 calibrationMode
                   ? 'bg-yellow-500 text-white'
-                  : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                  : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'
               }`}
             >
               {calibrationMode ? 'Настройка полей (ВКЛ)' : 'Настройка полей'}
             </button>
-            <button
-              onClick={() => setShowRegistry(!showRegistry)}
-              className="text-sm text-gray-500 hover:text-gray-700 underline"
-            >
-              {showRegistry ? 'Скрыть реестр' : 'Данные реестра'}
-            </button>
           </div>
         </div>
 
-        {/* Error */}
         {error && (
           <div className="mb-4 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg no-print">
             {error}
           </div>
         )}
 
-        {/* Loading */}
-        {loading && (
-          <div className="mb-4 text-center py-4 no-print">
-            <div className="inline-block w-6 h-6 border-3 border-[#2E7D32] border-t-transparent rounded-full animate-spin"></div>
-            <span className="ml-3 text-gray-600">Извлекаю данные из PDF...</span>
-          </div>
-        )}
-
-        <div className="flex gap-4">
-          {/* Main: Certificate editor */}
+        <div className="flex gap-4 justify-center">
           <div className="flex-shrink-0">
             <div
               id="print-area-wrapper"
@@ -716,256 +517,17 @@ export default function Home() {
             >
               <CertificateEditor
                 formData={formData}
-            onFieldChange={updateField}
-            onArrayFieldChange={updateArrayField}
-            onTextColorChange={updateTextColor}
-            onAddArrayRow={addArrayRow}
-                onRemoveArrayRow={removeArrayRow}
+                onFieldChange={updateField}
+                onArrayFieldChange={(k, i, v) => updateArrayField(k as 'services_list', i, v)}
+                onTextColorChange={updateTextColor}
+                onAddArrayRow={() => addArrayRow('services_list')}
+                onRemoveArrayRow={(k, i) => removeArrayRow(k as 'services_list', i)}
                 calibrationMode={calibrationMode}
               />
             </div>
           </div>
-
-          {/* Side panel: registry-only fields */}
-          {showRegistry && (
-            <div className="flex-1 min-w-[280px] max-w-[360px] no-print">
-              <div className="border rounded-lg bg-white p-4 space-y-3 sticky top-4">
-                <h3 className="text-sm font-bold text-[#2E7D32] uppercase tracking-wide">
-                  Данные для реестра
-                </h3>
-
-                <SideField label="№ сертификата" required>
-                  <input
-                    type="text"
-                    value={formData.cert_number}
-                    onChange={e => updateField('cert_number', e.target.value)}
-                    placeholder="238279"
-                    className="form-input"
-                  />
-                </SideField>
-
-                <div className="grid grid-cols-2 gap-2">
-                  <SideField label="№ п/п">
-                    <input
-                      type="number"
-                      value={formData.serial_number}
-                      onChange={e => updateField('serial_number', e.target.value)}
-                      className="form-input"
-                    />
-                  </SideField>
-                  <SideField label="№ копии">
-                    <input
-                      type="text"
-                      value={formData.copy_number}
-                      onChange={e => updateField('copy_number', e.target.value)}
-                      className="form-input"
-                    />
-                  </SideField>
-                </div>
-
-                <div className="grid grid-cols-2 gap-2">
-                  <SideField label="Оформление">
-                    <input
-                      type="number"
-                      value={formData.cert_processing}
-                      onChange={e => updateField('cert_processing', e.target.value)}
-                      className="form-input"
-                    />
-                  </SideField>
-                  <SideField label="ИНН">
-                    <input
-                      type="text"
-                      value={formData.inn}
-                      onChange={e => updateField('inn', e.target.value)}
-                      className="form-input"
-                    />
-                  </SideField>
-                </div>
-
-                <div className="grid grid-cols-2 gap-2">
-                  <SideField label="Стоимость">
-                    <input
-                      type="text"
-                      value={formData.total_cost}
-                      onChange={e => updateField('total_cost', e.target.value)}
-                      className="form-input"
-                    />
-                  </SideField>
-                  <SideField label="К оплате">
-                    <input
-                      type="text"
-                      value={formData.amount_due}
-                      onChange={e => updateField('amount_due', e.target.value)}
-                      className="form-input"
-                    />
-                  </SideField>
-                </div>
-
-                {/* Количество + единица измерения */}
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">
-                    Количество
-                    {autoQuantityLoading && (
-                      <span className="ml-2 text-[10px] text-gray-400 font-normal">
-                        считаю…
-                      </span>
-                    )}
-                    {userEditedQuantityRef.current && !autoQuantityLoading && (
-                      <span className="ml-2 text-[10px] text-amber-500 font-normal">
-                        ручной ввод
-                      </span>
-                    )}
-                  </label>
-                  <div className="flex gap-2">
-                    <input
-                      type="text"
-                      value={formData.quantity}
-                      onChange={e => updateField('quantity', e.target.value)}
-                      placeholder="1000"
-                      className="form-input flex-1"
-                    />
-                    <input
-                      type="text"
-                      value={formData.quantity_unit}
-                      onChange={e => updateField('quantity_unit', e.target.value)}
-                      placeholder="кг"
-                      className="form-input w-20"
-                    />
-                  </div>
-                </div>
-
-                {/* На основании — массив */}
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">
-                    На основании
-                  </label>
-                  <div className="space-y-1">
-                    {formData.basis_documents.map((b, i) => (
-                      <div key={i} className="flex gap-1">
-                        <input
-                          type="text"
-                          value={b}
-                          onChange={e => updateArrayField('basis_documents', i, e.target.value)}
-                          placeholder={i === 0 ? 'Протокол…' : 'Доп. строка'}
-                          className="form-input flex-1"
-                        />
-                        {formData.basis_documents.length > 1 && (
-                          <button
-                            type="button"
-                            onClick={() => removeArrayRow('basis_documents', i)}
-                            className="px-2 text-gray-400 hover:text-red-500 text-sm"
-                            title="Удалить строку"
-                          >
-                            ✕
-                          </button>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => addArrayRow('basis_documents')}
-                    className="mt-1 text-xs text-teal-600 hover:text-teal-700 font-medium"
-                  >
-                    + Добавить строку
-                  </button>
-                </div>
-
-                <SideField label="Испытаний">
-                  <input
-                    type="text"
-                    value={formData.tests}
-                    onChange={e => updateField('tests', e.target.value)}
-                    className="form-input"
-                  />
-                </SideField>
-
-                <div className="grid grid-cols-2 gap-2">
-                  <SideField label="№ фактуры">
-                    <input
-                      type="text"
-                      value={formData.invoice_number}
-                      onChange={e => updateField('invoice_number', e.target.value)}
-                      className="form-input"
-                    />
-                  </SideField>
-                  <SideField label="Дата фактуры">
-                    <input
-                      type="text"
-                      value={formData.invoice_date}
-                      onChange={e => updateField('invoice_date', e.target.value)}
-                      placeholder="ДД.ММ.ГГ"
-                      className="form-input"
-                    />
-                  </SideField>
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Registry row table */}
-        <div className="mt-4 border rounded-lg overflow-hidden no-print">
-          <div className="bg-gray-100 px-4 py-2 font-medium text-gray-700 text-sm border-b">
-            Строка для реестра
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full border-collapse text-sm">
-              <thead>
-                <tr>
-                  {ALL_COLUMNS.map(col => (
-                    <th
-                      key={col}
-                      className="bg-[#2E7D32] text-white px-2 py-2 border border-green-800 text-center whitespace-nowrap text-xs font-medium"
-                    >
-                      <div>{col}</div>
-                      <div className="font-normal text-green-100 text-[10px]">
-                        {COLUMN_LABELS[col]}
-                      </div>
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                <tr>
-                  {(() => {
-                    const row = formToRegistryRow(formData);
-                    return ALL_COLUMNS.map(col => (
-                      <td
-                        key={col}
-                        className="px-2 py-2 border border-gray-300 text-center text-xs max-w-[200px] truncate"
-                        title={row[col as keyof typeof row] || ' '}
-                      >
-                        {row[col as keyof typeof row] || ' '}
-                      </td>
-                    ));
-                  })()}
-                </tr>
-              </tbody>
-            </table>
-          </div>
         </div>
       </main>
-    </div>
-  );
-}
-
-function SideField({
-  label,
-  required,
-  children,
-}: {
-  label: string;
-  required?: boolean;
-  children: React.ReactNode;
-}) {
-  return (
-    <div>
-      <label className="block text-xs font-medium text-gray-600 mb-1">
-        {label}
-        {required && <span className="text-red-400 ml-0.5">*</span>}
-      </label>
-      {children}
     </div>
   );
 }

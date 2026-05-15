@@ -136,14 +136,14 @@ export default function AppendixPage() {
                 value={certNumberInput}
                 onChange={e => setCertNumberInput(e.target.value)}
                 placeholder="например, 238279"
-                className="px-3 py-2 border border-gray-300 rounded text-sm focus:border-[#2E7D32] focus:ring-1 focus:ring-[#2E7D32] focus:outline-none w-52"
+                className="px-3 py-2 border border-gray-300 rounded text-sm focus:border-[#1d4ed8] focus:ring-1 focus:ring-[#1d4ed8] focus:outline-none w-52"
               />
             </div>
 
             <label className={`px-5 py-2 rounded-lg font-medium text-sm cursor-pointer transition-colors ${
               uploading
                 ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                : 'bg-[#2E7D32] text-white hover:bg-green-800'
+                : 'bg-[#1d4ed8] text-white hover:bg-blue-800'
             }`}>
               {uploading ? 'Загрузка...' : 'Выбрать файл'}
               <input

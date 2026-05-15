@@ -14,7 +14,7 @@ export default function Navigation() {
   ];
 
   return (
-    <header className="bg-[#2E7D32] text-white shadow-md no-print">
+    <header className="bg-[#1d4ed8] text-white shadow-md no-print">
       <div className="max-w-[1600px] mx-auto px-6">
         <div className="flex items-center justify-between py-3">
           <h1 className="text-lg font-bold">

@@ -109,7 +109,7 @@ export default function SettingsPage() {
           <button
             onClick={handleSave}
             className={`px-5 py-2.5 rounded-lg font-medium text-white text-sm transition-colors ${
-              savedMsg ? 'bg-green-600' : 'bg-[#2E7D32] hover:bg-green-800'
+              savedMsg ? 'bg-blue-600' : 'bg-[#1d4ed8] hover:bg-blue-800'
             }`}
           >
             {savedMsg ? '✅ Сохранено!' : 'Сохранить'}
@@ -144,7 +144,7 @@ export default function SettingsPage() {
                       step="0.5"
                       value={layout[key].top}
                       onChange={e => updateField(key, 'top', e.target.value)}
-                      className="w-full px-2 py-1.5 border border-gray-300 rounded text-center text-sm focus:border-[#2E7D32] focus:ring-1 focus:ring-[#2E7D32] focus:outline-none"
+                      className="w-full px-2 py-1.5 border border-gray-300 rounded text-center text-sm focus:border-[#1d4ed8] focus:ring-1 focus:ring-[#1d4ed8] focus:outline-none"
                     />
                   </td>
                   <td className="px-2 py-1">
@@ -153,7 +153,7 @@ export default function SettingsPage() {
                       step="0.5"
                       value={layout[key].left}
                       onChange={e => updateField(key, 'left', e.target.value)}
-                      className="w-full px-2 py-1.5 border border-gray-300 rounded text-center text-sm focus:border-[#2E7D32] focus:ring-1 focus:ring-[#2E7D32] focus:outline-none"
+                      className="w-full px-2 py-1.5 border border-gray-300 rounded text-center text-sm focus:border-[#1d4ed8] focus:ring-1 focus:ring-[#1d4ed8] focus:outline-none"
                     />
                   </td>
                   <td className="px-2 py-1">
@@ -162,7 +162,7 @@ export default function SettingsPage() {
                       step="0.5"
                       value={layout[key].fontSize}
                       onChange={e => updateField(key, 'fontSize', e.target.value)}
-                      className="w-full px-2 py-1.5 border border-gray-300 rounded text-center text-sm focus:border-[#2E7D32] focus:ring-1 focus:ring-[#2E7D32] focus:outline-none"
+                      className="w-full px-2 py-1.5 border border-gray-300 rounded text-center text-sm focus:border-[#1d4ed8] focus:ring-1 focus:ring-[#1d4ed8] focus:outline-none"
                     />
                   </td>
                 </tr>
@@ -216,7 +216,7 @@ export default function SettingsPage() {
               placeholder="Напр. ИП"
               value={newShort}
               onChange={e => setNewShort(e.target.value)}
-              className="px-3 py-2 border border-gray-300 rounded text-sm w-1/4 focus:border-[#2E7D32] focus:outline-none"
+              className="px-3 py-2 border border-gray-300 rounded text-sm w-1/4 focus:border-[#1d4ed8] focus:outline-none"
             />
             <input
               type="text"
@@ -228,7 +228,7 @@ export default function SettingsPage() {
                   void addReplacement();
                 }
               }}
-              className="px-3 py-2 border border-gray-300 rounded text-sm flex-1 focus:border-[#2E7D32] focus:outline-none"
+              className="px-3 py-2 border border-gray-300 rounded text-sm flex-1 focus:border-[#1d4ed8] focus:outline-none"
             />
             <button
               onClick={() => void addReplacement()}
@@ -249,7 +249,7 @@ export default function SettingsPage() {
         <button
           onClick={handleSaveReplacements}
           className={`px-5 py-2.5 rounded-lg font-medium text-white text-sm transition-colors mb-10 ${
-            replacementsSaved ? 'bg-green-600' : 'bg-[#2E7D32] hover:bg-green-800'
+            replacementsSaved ? 'bg-blue-600' : 'bg-[#1d4ed8] hover:bg-blue-800'
           }`}
         >
           {replacementsSaved ? '✅ Сохранено!' : 'Сохранить правила автозамены'}

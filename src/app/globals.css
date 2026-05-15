@@ -5,14 +5,14 @@
 @layer components {
   .form-input {
     @apply w-full px-3 py-2 border border-gray-300 rounded text-sm transition-colors
-      focus:border-[#2E7D32] focus:ring-1 focus:ring-[#2E7D32] focus:outline-none;
+      focus:border-[#1d4ed8] focus:ring-1 focus:ring-[#1d4ed8] focus:outline-none;
   }
 }
 
 :root {
   --background: #ffffff;
   --foreground: #171717;
-  --green-primary: #2E7D32;
+  --green-primary: #1d4ed8;
   --green-light: #90EE90;
 }
 
