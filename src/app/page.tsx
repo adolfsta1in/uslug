@@ -2,17 +2,17 @@
 
 export const dynamic = 'force-dynamic';
 
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  ALL_COLUMNS,
+  COLUMN_LABELS,
   CertificateFormData,
   EMPTY_FORM_DATA,
   FORM_DRAFT_KEY,
   FORM_DRAFT_VERSION,
+  formToCertificatePayload,
   formToRegistryRow,
-  ALL_COLUMNS,
-  COLUMN_LABELS,
   normalizeServicesList,
-  serializeServicesList,
 } from '@/lib/certificateTypes';
 import CertificateEditor from './components/CertificateEditor';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
@@ -28,9 +28,39 @@ interface CertTemplate {
 
 const UNIQUE_FIELDS: (keyof CertificateFormData)[] = [
   'blank_number',
-  'date_from_day', 'date_from_month', 'date_from_year',
-  'date_to_day', 'date_to_month', 'date_to_year',
+  'application_number',
+  'date_from_day',
+  'date_from_month',
+  'date_from_year',
+  'date_to_day',
+  'date_to_month',
+  'date_to_year',
   'cert_number',
+  'patent_number',
+  'issue_date',
+  'amount',
+];
+
+const REGISTRY_FIELDS: {
+  key: keyof CertificateFormData;
+  label: string;
+  placeholder?: string;
+  multiline?: boolean;
+}[] = [
+  { key: 'cert_number', label: '№ свидетельства' },
+  { key: 'application_number', label: '№ заявка' },
+  {
+    key: 'recipient_name',
+    label: 'Получатель свидетельства',
+    placeholder: 'Организация, предприятие или частное лицо',
+    multiline: true,
+  },
+  { key: 'recipient_address', label: 'Адрес', multiline: true },
+  { key: 'entrepreneur_name', label: 'Ф.И.О предприниматель' },
+  { key: 'patent_number', label: '№ патента' },
+  { key: 'issue_date', label: 'Дата выдачи', placeholder: 'например: 03.04.2026' },
+  { key: 'inspector_name', label: 'Инспектор' },
+  { key: 'amount', label: 'Сумма' },
 ];
 
 function loadDraft(): CertificateFormData | null {
@@ -46,9 +76,10 @@ function loadDraft(): CertificateFormData | null {
       ...EMPTY_FORM_DATA,
       ...data,
       services_list: normalizeServicesList(data.services_list),
-      text_color_overrides: data.text_color_overrides && typeof data.text_color_overrides === 'object'
-        ? data.text_color_overrides
-        : EMPTY_FORM_DATA.text_color_overrides,
+      text_color_overrides:
+        data.text_color_overrides && typeof data.text_color_overrides === 'object'
+          ? data.text_color_overrides
+          : EMPTY_FORM_DATA.text_color_overrides,
     };
   } catch {
     return null;
@@ -57,16 +88,13 @@ function loadDraft(): CertificateFormData | null {
 
 function saveDraft(data: CertificateFormData) {
   try {
-    localStorage.setItem(
-      FORM_DRAFT_KEY,
-      JSON.stringify({ version: FORM_DRAFT_VERSION, data }),
-    );
+    localStorage.setItem(FORM_DRAFT_KEY, JSON.stringify({ version: FORM_DRAFT_VERSION, data }));
   } catch {}
 }
 
 function toTemplateData(data: CertificateFormData): Partial<CertificateFormData> {
   const templateData = { ...data } as Partial<CertificateFormData>;
-  UNIQUE_FIELDS.forEach(f => delete templateData[f]);
+  UNIQUE_FIELDS.forEach(field => delete templateData[field]);
   return templateData;
 }
 
@@ -76,9 +104,9 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [printing, setPrinting] = useState(false);
   const [calibrationMode, setCalibrationMode] = useState(false);
 
-  // Templates
   const [templates, setTemplates] = useState<CertTemplate[]>([]);
   const [showTemplatesPanel, setShowTemplatesPanel] = useState(false);
   const [templateName, setTemplateName] = useState('');
@@ -97,8 +125,8 @@ export default function Home() {
 
   useEffect(() => {
     if (!draftLoaded) return;
-    const t = setTimeout(() => saveDraft(formData), 300);
-    return () => clearTimeout(t);
+    const timer = setTimeout(() => saveDraft(formData), 300);
+    return () => clearTimeout(timer);
   }, [formData, draftLoaded]);
 
   useEffect(() => {
@@ -108,20 +136,20 @@ export default function Home() {
     templateAutoSaveTimerRef.current = setTimeout(async () => {
       setTemplateAutoSaveStatus('saving');
       const data = toTemplateData(formData);
-      const { error } = await supabase
+      const { error: templateError } = await supabase
         .from('templates')
         .update({ data })
         .eq('id', activeTemplateId);
 
-      if (error) {
-        console.warn('Template autosave failed', error);
+      if (templateError) {
+        console.warn('Template autosave failed', templateError);
         setTemplateAutoSaveStatus('error');
         return;
       }
 
-      setTemplates(prev => prev.map(t => t.id === activeTemplateId ? { ...t, data } : t));
+      setTemplates(prev => prev.map(template => (template.id === activeTemplateId ? { ...template, data } : template)));
       setTemplateAutoSaveStatus('saved');
-      setTimeout(() => setTemplateAutoSaveStatus(s => (s === 'saved' ? 'idle' : s)), 2500);
+      setTimeout(() => setTemplateAutoSaveStatus(status => (status === 'saved' ? 'idle' : status)), 2500);
     }, 900);
 
     return () => {
@@ -138,39 +166,33 @@ export default function Home() {
     setTemplates((data || []) as CertTemplate[]);
   }, []);
 
-  useEffect(() => { 
+  useEffect(() => {
     initAutoReplacements();
-    loadTemplates(); 
+    loadTemplates();
   }, [loadTemplates]);
 
   const updateField = useCallback((key: keyof CertificateFormData, value: string) => {
     setFormData(prev => ({ ...prev, [key]: applyAutoReplace(value) }));
   }, []);
 
-  const updateArrayField = useCallback(
-    (key: 'services_list', index: number, value: string) => {
-      setFormData(prev => {
-        const arr = [...prev[key]];
-        arr[index] = applyAutoReplace(value);
-        return { ...prev, [key]: arr };
-      });
-    },
-    [],
-  );
+  const updateArrayField = useCallback((key: 'services_list', index: number, value: string) => {
+    setFormData(prev => {
+      const next = [...prev[key]];
+      next[index] = applyAutoReplace(value);
+      return { ...prev, [key]: next };
+    });
+  }, []);
 
   const addArrayRow = useCallback((key: 'services_list') => {
     setFormData(prev => ({ ...prev, [key]: [...prev[key], ''] }));
   }, []);
 
-  const removeArrayRow = useCallback(
-    (key: 'services_list', index: number) => {
-      setFormData(prev => {
-        if (prev[key].length <= 1) return prev;
-        return { ...prev, [key]: prev[key].filter((_, i) => i !== index) };
-      });
-    },
-    [],
-  );
+  const removeArrayRow = useCallback((key: 'services_list', index: number) => {
+    setFormData(prev => {
+      if (prev[key].length <= 1) return prev;
+      return { ...prev, [key]: prev[key].filter((_, itemIndex) => itemIndex !== index) };
+    });
+  }, []);
 
   const updateTextColor = useCallback((field: string, start: number, end: number, color: '#000' | '#fff') => {
     if (start === end) return;
@@ -191,12 +213,9 @@ export default function Home() {
 
   const copyRow = useCallback(async () => {
     const row = formToRegistryRow(formData);
-    const values = ALL_COLUMNS.map(col => row[col as keyof typeof row] || '');
-    const text = values.join('\t');
+    const text = ALL_COLUMNS.map(column => row[column] || '').join('\t');
     try {
       await navigator.clipboard.writeText(text);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 3000);
     } catch {
       const textarea = document.createElement('textarea');
       textarea.value = text;
@@ -204,61 +223,37 @@ export default function Home() {
       textarea.select();
       document.execCommand('copy');
       document.body.removeChild(textarea);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 3000);
     }
+    setCopied(true);
+    setTimeout(() => setCopied(false), 3000);
   }, [formData]);
 
-  const saveToRegistry = useCallback(async () => {
+  const saveToRegistry = useCallback(async (): Promise<boolean> => {
     setSaved(false);
     setError(null);
 
     if (!isSupabaseConfigured) {
-      setError('Ошибка при сохранении: Supabase не настроен. Добавьте NEXT_PUBLIC_SUPABASE_URL и NEXT_PUBLIC_SUPABASE_ANON_KEY в Vercel/локальный .env.local.');
-      return;
+      setError('Supabase не настроен. Добавьте NEXT_PUBLIC_SUPABASE_URL и NEXT_PUBLIC_SUPABASE_ANON_KEY в .env.local или Vercel.');
+      return false;
     }
 
     try {
-      const payload: Record<string, string | null> = {
-        blank_number: formData.blank_number,
-        date_from_day: formData.date_from_day,
-        date_from_month: formData.date_from_month,
-        date_from_year: formData.date_from_year,
-        date_to_day: formData.date_to_day,
-        date_to_month: formData.date_to_month,
-        date_to_year: formData.date_to_year,
-        cert_number: formData.cert_number,
-        provider_name_address: formData.provider_name_address,
-        director_name: formData.director_name,
-        services_list: serializeServicesList(formData.services_list),
-        normative_documents: formData.normative_documents,
-        conclusion_doc: formData.conclusion_doc,
-        tax_certificate: formData.tax_certificate,
-        inspection_body: formData.inspection_body,
-        head_name: formData.head_name,
-      };
-
+      const payload = formToCertificatePayload(formData);
       let saveError;
       let savedId: string | undefined;
+
       if (formData.id) {
-        const { error } = await supabase
-          .from('certificates')
-          .update(payload)
-          .eq('id', formData.id);
-        saveError = error;
+        const { error: updateError } = await supabase.from('certificates').update(payload).eq('id', formData.id);
+        saveError = updateError;
       } else {
-        const { data, error } = await supabase
-          .from('certificates')
-          .insert(payload)
-          .select('id')
-          .single();
-        saveError = error;
+        const { data, error: insertError } = await supabase.from('certificates').insert(payload).select('id').single();
+        saveError = insertError;
         savedId = data?.id;
       }
 
       if (saveError) {
-        setError('Ошибка при сохранении: ' + saveError.message);
-        return;
+        setError('Ошибка при сохранении в реестр: ' + saveError.message);
+        return false;
       }
 
       if (savedId) {
@@ -266,36 +261,37 @@ export default function Home() {
       }
       setSaved(true);
       setTimeout(() => setSaved(false), 3000);
+      return true;
     } catch (err) {
       const message = err instanceof Error ? err.message : 'unknown error';
-      setError(
-        message.includes('Failed to fetch')
-          ? 'Ошибка при сохранении: не удалось подключиться к Supabase. Проверьте NEXT_PUBLIC_SUPABASE_URL и NEXT_PUBLIC_SUPABASE_ANON_KEY в Vercel/локальном .env.local.'
-          : 'Не удалось сохранить в базу данных: ' + message,
-      );
+      setError('Не удалось сохранить в реестр: ' + message);
+      return false;
     }
   }, [formData]);
 
   const downloadExcel = useCallback(() => {
     const row = formToRegistryRow(formData);
-    const headers = ALL_COLUMNS.map(col => COLUMN_LABELS[col]);
-    const values = ALL_COLUMNS.map(col => row[col as keyof typeof row] || '');
+    const headers = ALL_COLUMNS.map(column => COLUMN_LABELS[column]);
+    const values = ALL_COLUMNS.map(column => row[column] || '');
     const ws = XLSX.utils.aoa_to_sheet([headers, values]);
-
-    ws['!cols'] = ALL_COLUMNS.map(col => {
-      if (['blank_number', 'date_from', 'date_to'].includes(col)) return { wch: 15 };
-      if (['services_list', 'provider_name_address'].includes(col)) return { wch: 40 };
-      return { wch: 20 };
+    ws['!cols'] = ALL_COLUMNS.map(column => {
+      if (['recipient_name', 'recipient_address', 'service_type'].includes(column)) return { wch: 42 };
+      return { wch: 18 };
     });
 
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Реестр');
-    XLSX.writeFile(wb, 'реестр_сертификатов.xlsx');
+    XLSX.writeFile(wb, 'reestr_svidetelstv.xlsx');
   }, [formData]);
 
-  const handlePrint = useCallback(() => {
-    window.print();
-  }, []);
+  const handlePrint = useCallback(async () => {
+    setPrinting(true);
+    const savedBeforePrint = await saveToRegistry();
+    setPrinting(false);
+    if (savedBeforePrint) {
+      window.print();
+    }
+  }, [saveToRegistry]);
 
   const clearForm = useCallback(() => {
     setFormData(EMPTY_FORM_DATA);
@@ -305,7 +301,9 @@ export default function Home() {
     setActiveTemplateId(null);
     setActiveTemplateName(null);
     setTemplateAutoSaveStatus('idle');
-    try { localStorage.removeItem(FORM_DRAFT_KEY); } catch {}
+    try {
+      localStorage.removeItem(FORM_DRAFT_KEY);
+    } catch {}
   }, []);
 
   const handleSaveTemplate = useCallback(async () => {
@@ -313,11 +311,7 @@ export default function Home() {
     if (!name) return;
     setTemplateSaving(true);
     const templateData = toTemplateData(formData);
-    const { data } = await supabase
-      .from('templates')
-      .insert({ name, data: templateData })
-      .select()
-      .single();
+    const { data } = await supabase.from('templates').insert({ name, data: templateData }).select().single();
     await loadTemplates();
     if (data?.id) {
       setActiveTemplateId(data.id);
@@ -327,164 +321,152 @@ export default function Home() {
     setTemplateSaving(false);
   }, [formData, templateName, loadTemplates]);
 
-  const handleLoadTemplate = useCallback((t: CertTemplate) => {
-    const tData = t.data || {};
+  const handleLoadTemplate = useCallback((template: CertTemplate) => {
+    const data = template.data || {};
     setFormData({
       ...EMPTY_FORM_DATA,
-      ...tData,
-      services_list: normalizeServicesList(tData.services_list),
-      text_color_overrides: tData.text_color_overrides && typeof tData.text_color_overrides === 'object'
-        ? tData.text_color_overrides
-        : EMPTY_FORM_DATA.text_color_overrides,
+      ...data,
+      services_list: normalizeServicesList(data.services_list),
+      text_color_overrides:
+        data.text_color_overrides && typeof data.text_color_overrides === 'object'
+          ? data.text_color_overrides
+          : EMPTY_FORM_DATA.text_color_overrides,
       blank_number: '',
+      application_number: '',
       cert_number: '',
-      date_from_day: '', date_from_month: '', date_from_year: '',
-      date_to_day: '', date_to_month: '', date_to_year: '',
+      patent_number: '',
+      issue_date: '',
+      amount: '',
+      date_from_day: '',
+      date_from_month: '',
+      date_from_year: '',
+      date_to_day: '',
+      date_to_month: '',
+      date_to_year: '',
     });
-    setActiveTemplateId(t.id);
-    setActiveTemplateName(t.name);
+    setActiveTemplateId(template.id);
+    setActiveTemplateName(template.name);
     setTemplateAutoSaveStatus('idle');
     setShowTemplatesPanel(false);
     setTemplateSearch('');
     setError(null);
   }, []);
 
-  const handleDeleteTemplate = useCallback(async (id: string) => {
-    await supabase.from('templates').delete().eq('id', id);
-    setTemplates(prev => prev.filter(t => t.id !== id));
-    if (activeTemplateId === id) {
-      setActiveTemplateId(null);
-      setActiveTemplateName(null);
-      setTemplateAutoSaveStatus('idle');
-    }
-  }, [activeTemplateId]);
+  const handleDeleteTemplate = useCallback(
+    async (id: string) => {
+      await supabase.from('templates').delete().eq('id', id);
+      setTemplates(prev => prev.filter(template => template.id !== id));
+      if (activeTemplateId === id) {
+        setActiveTemplateId(null);
+        setActiveTemplateName(null);
+        setTemplateAutoSaveStatus('idle');
+      }
+    },
+    [activeTemplateId],
+  );
+
+  const filteredTemplates = templateSearch.trim()
+    ? templates.filter(template => template.name.toLowerCase().includes(templateSearch.trim().toLowerCase()))
+    : templates;
 
   return (
-    <div className="min-h-screen bg-gray-50" onClick={() => { if (showTemplatesPanel) setShowTemplatesPanel(false); }}>
-      <main className="max-w-[1200px] mx-auto p-4" onClick={e => e.stopPropagation()}>
-        {/* Top toolbar */}
-        <div className="flex flex-wrap items-center gap-3 mb-4 no-print">
+    <div className="min-h-screen bg-gray-50" onClick={() => showTemplatesPanel && setShowTemplatesPanel(false)}>
+      <main className="mx-auto max-w-[1580px] p-4" onClick={event => event.stopPropagation()}>
+        <div className="no-print mb-4 flex flex-wrap items-center gap-3">
           <button
             onClick={handlePrint}
-            className="px-5 py-2.5 rounded-lg font-medium bg-blue-700 text-white hover:bg-blue-800 transition-colors text-sm"
+            disabled={printing}
+            className="rounded-lg bg-blue-700 px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-blue-800 disabled:opacity-60"
           >
-            Печать
+            {printing ? 'Сохраняю...' : 'Печать и в реестр'}
           </button>
 
           <button
             onClick={copyRow}
-            className={`px-5 py-2.5 rounded-lg font-medium text-white transition-colors text-sm ${
+            className={`rounded-lg px-5 py-2.5 text-sm font-medium text-white transition-colors ${
               copied ? 'bg-blue-600' : 'bg-blue-500 hover:bg-blue-600'
             }`}
           >
-            {copied ? 'Скопировано!' : 'Копировать строку'}
+            {copied ? 'Скопировано' : 'Копировать строку'}
           </button>
 
           <button
             onClick={saveToRegistry}
-            className={`px-5 py-2.5 rounded-lg font-medium text-white transition-colors text-sm ${
+            className={`rounded-lg px-5 py-2.5 text-sm font-medium text-white transition-colors ${
               saved ? 'bg-blue-600' : 'bg-indigo-600 hover:bg-indigo-700'
             }`}
           >
-            {saved ? 'Сохранено!' : (formData.id ? 'Обновить в реестре' : 'В реестр')}
+            {saved ? 'Сохранено' : formData.id ? 'Обновить в реестре' : 'В реестр'}
           </button>
 
           <button
             onClick={downloadExcel}
-            className="px-5 py-2.5 rounded-lg font-medium bg-teal-600 text-white hover:bg-teal-700 transition-colors text-sm"
+            className="rounded-lg bg-teal-600 px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-teal-700"
           >
             Excel
           </button>
 
           <button
             onClick={clearForm}
-            className="px-5 py-2.5 rounded-lg font-medium bg-gray-500 text-white hover:bg-gray-600 transition-colors text-sm"
+            className="rounded-lg bg-gray-500 px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-gray-600"
           >
             Очистить
           </button>
 
-          {/* Template buttons */}
           <div className="relative">
             <button
-              onClick={() => setShowTemplatesPanel(v => !v)}
-              className="px-5 py-2.5 rounded-lg font-medium bg-cyan-600 text-white hover:bg-cyan-700 transition-colors text-sm"
+              onClick={() => setShowTemplatesPanel(value => !value)}
+              className="rounded-lg bg-cyan-600 px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-cyan-700"
             >
               Шаблоны {templates.length > 0 && `(${templates.length})`}
             </button>
             {showTemplatesPanel && (
-              <div className="absolute left-0 top-full mt-1 z-50 bg-white border border-gray-200 rounded-lg shadow-xl w-72">
-                <div className="p-3 border-b">
-                  <p className="text-xs text-gray-500 mb-2">Загрузить шаблон — заполнит форму без уникальных полей</p>
-                  {templates.length === 0 ? (
-                    <p className="text-xs text-gray-400 italic">Шаблонов нет. Сохраните первый.</p>
-                  ) : (() => {
-                    const q = templateSearch.trim().toLowerCase();
-                    const filtered = q
-                      ? templates.filter(t => t.name.toLowerCase().includes(q))
-                      : templates;
-                    return (
-                      <>
-                        <div className="relative mb-2">
-                          <input
-                            type="text"
-                            value={templateSearch}
-                            onChange={e => setTemplateSearch(e.target.value)}
-                            placeholder="Поиск…"
-                            autoFocus
-                            className="w-full px-2 py-1.5 pr-6 border border-gray-300 rounded text-xs focus:border-cyan-500 focus:outline-none"
-                          />
-                          {templateSearch && (
-                            <button
-                              onClick={() => setTemplateSearch('')}
-                              className="absolute right-1 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-700 text-xs w-4 h-4 flex items-center justify-center"
-                              title="Очистить"
-                              type="button"
-                            >
-                              ✕
-                            </button>
-                          )}
+              <div className="absolute left-0 top-full z-50 mt-1 w-80 rounded-lg border border-gray-200 bg-white shadow-xl">
+                <div className="border-b p-3">
+                  <p className="mb-2 text-xs text-gray-500">Загрузить шаблон без уникальных номеров, дат и суммы.</p>
+                  <input
+                    type="text"
+                    value={templateSearch}
+                    onChange={event => setTemplateSearch(event.target.value)}
+                    placeholder="Поиск"
+                    autoFocus
+                    className="mb-2 w-full rounded border border-gray-300 px-2 py-1.5 text-xs outline-none focus:border-cyan-500"
+                  />
+                  <div className="max-h-64 space-y-1 overflow-y-auto">
+                    {filteredTemplates.length === 0 ? (
+                      <p className="text-xs italic text-gray-400">Шаблонов нет</p>
+                    ) : (
+                      filteredTemplates.map(template => (
+                        <div key={template.id} className="flex items-center justify-between gap-2 rounded px-2 py-1.5 hover:bg-gray-50">
+                          <button
+                            onClick={() => handleLoadTemplate(template)}
+                            className="flex-1 truncate text-left text-sm font-medium text-gray-800 hover:text-cyan-700"
+                          >
+                            {template.name}
+                          </button>
+                          <button onClick={() => handleDeleteTemplate(template.id)} className="text-xs text-red-500 hover:text-red-700">
+                            Удалить
+                          </button>
                         </div>
-                        {filtered.length === 0 ? (
-                          <p className="text-xs text-gray-400 italic">Ничего не найдено</p>
-                        ) : (
-                          <div className="space-y-1 max-h-64 overflow-y-auto">
-                            {filtered.map(t => (
-                              <div key={t.id} className="flex items-center justify-between gap-2 px-2 py-1.5 rounded hover:bg-gray-50">
-                                <button
-                                  onClick={() => handleLoadTemplate(t)}
-                                  className="text-sm text-left text-gray-800 hover:text-cyan-700 font-medium flex-1 truncate"
-                                >
-                                  {t.name}
-                                </button>
-                                <button
-                                  onClick={() => handleDeleteTemplate(t.id)}
-                                  className="text-red-400 hover:text-red-600 text-xs flex-shrink-0"
-                                >
-                                  ✕
-                                </button>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </>
-                    );
-                  })()}
+                      ))
+                    )}
+                  </div>
                 </div>
                 <div className="p-3">
-                  <p className="text-xs font-medium text-gray-600 mb-2">Сохранить текущие данные как шаблон:</p>
+                  <p className="mb-2 text-xs font-medium text-gray-600">Сохранить текущие данные как шаблон:</p>
                   <div className="flex gap-2">
                     <input
                       type="text"
                       value={templateName}
-                      onChange={e => setTemplateName(e.target.value)}
-                      onKeyDown={e => e.key === 'Enter' && handleSaveTemplate()}
-                      placeholder="Название (напр. Шаблон 1)"
-                      className="flex-1 px-2 py-1.5 border border-gray-300 rounded text-xs focus:border-cyan-500 focus:outline-none"
+                      onChange={event => setTemplateName(event.target.value)}
+                      onKeyDown={event => event.key === 'Enter' && handleSaveTemplate()}
+                      placeholder="Название"
+                      className="flex-1 rounded border border-gray-300 px-2 py-1.5 text-xs outline-none focus:border-cyan-500"
                     />
                     <button
                       onClick={handleSaveTemplate}
                       disabled={!templateName.trim() || templateSaving}
-                      className="px-3 py-1.5 bg-cyan-600 text-white rounded text-xs font-medium disabled:opacity-40 hover:bg-cyan-700"
+                      className="rounded bg-cyan-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-cyan-700 disabled:opacity-40"
                     >
                       {templateSaving ? '...' : 'Сохранить'}
                     </button>
@@ -495,7 +477,7 @@ export default function Home() {
           </div>
 
           {activeTemplateName && (
-            <div className="text-xs text-cyan-800 bg-cyan-50 border border-cyan-200 rounded-lg px-3 py-2">
+            <div className="rounded-lg border border-cyan-200 bg-cyan-50 px-3 py-2 text-xs text-cyan-800">
               Шаблон: <span className="font-semibold">{activeTemplateName}</span>
               {templateAutoSaveStatus === 'saving' && <span className="ml-2 text-amber-600">сохраняется...</span>}
               {templateAutoSaveStatus === 'saved' && <span className="ml-2 text-green-600">сохранен</span>}
@@ -503,39 +485,62 @@ export default function Home() {
             </div>
           )}
 
-          <div className="ml-auto flex items-center gap-4">
-            <button
-              onClick={() => setCalibrationMode(!calibrationMode)}
-              className={`px-4 py-2 rounded-lg font-medium text-sm transition-colors ${
-                calibrationMode
-                  ? 'bg-yellow-500 text-white'
-                  : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'
-              }`}
-            >
-              {calibrationMode ? 'Настройка полей (ВКЛ)' : 'Настройка полей'}
-            </button>
-          </div>
+          <button
+            onClick={() => setCalibrationMode(value => !value)}
+            className={`ml-auto rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
+              calibrationMode ? 'bg-yellow-500 text-white' : 'border border-gray-300 bg-white text-gray-700 hover:bg-gray-50'
+            }`}
+          >
+            {calibrationMode ? 'Настройка полей включена' : 'Настройка полей'}
+          </button>
         </div>
 
-        {error && (
-          <div className="mb-4 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg no-print">
-            {error}
-          </div>
-        )}
+        {error && <div className="no-print mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-red-700">{error}</div>}
 
-        <div className="flex gap-4 justify-center">
+        <div className="flex items-start justify-center gap-4">
+          <aside className="no-print sticky top-4 w-[330px] flex-shrink-0 rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
+            <div className="mb-4">
+              <h2 className="text-base font-bold text-gray-900">Данные для реестра</h2>
+              <p className="mt-1 text-xs leading-5 text-gray-500">
+                Эти поля раскладываются по колонкам Excel-реестра со скрина. Поля бланка остаются на листе A4.
+              </p>
+            </div>
+
+            <div className="space-y-3">
+              {REGISTRY_FIELDS.map(field => (
+                <label key={field.key} className="block">
+                  <span className="mb-1 block text-xs font-semibold text-gray-700">{field.label}</span>
+                  {field.multiline ? (
+                    <textarea
+                      value={String(formData[field.key] || '')}
+                      onChange={event => updateField(field.key, event.target.value)}
+                      placeholder={field.placeholder}
+                      rows={2}
+                      className="w-full resize-none rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                    />
+                  ) : (
+                    <input
+                      type="text"
+                      value={String(formData[field.key] || '')}
+                      onChange={event => updateField(field.key, event.target.value)}
+                      placeholder={field.placeholder}
+                      className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                    />
+                  )}
+                </label>
+              ))}
+            </div>
+          </aside>
+
           <div className="flex-shrink-0">
-            <div
-              id="print-area-wrapper"
-              className="border border-gray-300 shadow-lg bg-white"
-            >
+            <div id="print-area-wrapper" className="border border-gray-300 bg-white shadow-lg">
               <CertificateEditor
                 formData={formData}
                 onFieldChange={updateField}
-                onArrayFieldChange={(k, i, v) => updateArrayField(k as 'services_list', i, v)}
+                onArrayFieldChange={(key, index, value) => updateArrayField(key as 'services_list', index, value)}
                 onTextColorChange={updateTextColor}
                 onAddArrayRow={() => addArrayRow('services_list')}
-                onRemoveArrayRow={(k, i) => removeArrayRow(k as 'services_list', i)}
+                onRemoveArrayRow={(key, index) => removeArrayRow(key as 'services_list', index)}
                 calibrationMode={calibrationMode}
               />
             </div>

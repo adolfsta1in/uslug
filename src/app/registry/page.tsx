@@ -2,230 +2,382 @@
 
 export const dynamic = 'force-dynamic';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { AgGridReact } from 'ag-grid-react';
 import {
+  AllCommunityModule,
+  ModuleRegistry,
+  type CellValueChangedEvent,
+  type ColDef,
+  type GridApi,
+  type GridReadyEvent,
+  type ICellRendererParams,
+} from 'ag-grid-community';
+import 'ag-grid-community/styles/ag-grid.css';
+import 'ag-grid-community/styles/ag-theme-quartz.css';
+import * as XLSX from 'xlsx';
+import {
+  COLUMN_LABELS,
+  EMPTY_FORM_DATA,
   FORM_DRAFT_KEY,
   FORM_DRAFT_VERSION,
+  REGISTRY_COLUMNS,
   formToRegistryRow,
-  ALL_COLUMNS,
-  COLUMN_LABELS,
-  TAJIK_MONTHS,
   normalizeServicesList,
+  serializeServicesList,
 } from '@/lib/certificateTypes';
 import { supabase } from '@/lib/supabase';
+
+ModuleRegistry.registerModules([AllCommunityModule]);
 
 interface CertRow {
   id: string;
   created_at: string;
-  blank_number: string;
-  date_from_day: string;
-  date_from_month: string;
-  date_from_year: string;
-  date_to_day: string;
-  date_to_month: string;
-  date_to_year: string;
-  cert_number: string;
-  provider_name_address: string;
-  director_name: string;
-  services_list: string;
-  normative_documents: string;
-  conclusion_doc: string;
-  tax_certificate: string;
-  inspection_body: string;
-  head_name: string;
+  blank_number: string | null;
+  application_number: string | null;
+  date_from_day: string | null;
+  date_from_month: string | null;
+  date_from_year: string | null;
+  date_to_day: string | null;
+  date_to_month: string | null;
+  date_to_year: string | null;
+  cert_number: string | null;
+  recipient_name: string | null;
+  recipient_address: string | null;
+  entrepreneur_name: string | null;
+  provider_name_address: string | null;
+  director_name: string | null;
+  services_list: string | null;
+  patent_number: string | null;
+  issue_date: string | null;
+  inspector_name: string | null;
+  amount: string | null;
+  normative_documents: string | null;
+  conclusion_doc: string | null;
+  tax_certificate: string | null;
+  inspection_body: string | null;
+  head_name: string | null;
+}
+
+type RegistryGridRow = CertRow & {
+  row_number: number;
+  service_type: string;
+};
+
+function toGridRow(row: CertRow, index: number): RegistryGridRow {
+  return {
+    ...row,
+    row_number: index + 1,
+    service_type: normalizeServicesList(row.services_list).filter(Boolean).join(' | '),
+  };
+}
+
+function toFormDraft(row: CertRow) {
+  return {
+    ...EMPTY_FORM_DATA,
+    id: row.id,
+    blank_number: row.blank_number || '',
+    application_number: row.application_number || '',
+    date_from_day: row.date_from_day || '',
+    date_from_month: row.date_from_month || '',
+    date_from_year: row.date_from_year || '',
+    date_to_day: row.date_to_day || '',
+    date_to_month: row.date_to_month || '',
+    date_to_year: row.date_to_year || '',
+    cert_number: row.cert_number || '',
+    recipient_name: row.recipient_name || '',
+    recipient_address: row.recipient_address || '',
+    entrepreneur_name: row.entrepreneur_name || '',
+    provider_name_address: row.provider_name_address || '',
+    director_name: row.director_name || '',
+    services_list: normalizeServicesList(row.services_list),
+    patent_number: row.patent_number || '',
+    issue_date: row.issue_date || '',
+    inspector_name: row.inspector_name || '',
+    amount: row.amount || '',
+    normative_documents: row.normative_documents || '',
+    conclusion_doc: row.conclusion_doc || '',
+    tax_certificate: row.tax_certificate || '',
+    inspection_body: row.inspection_body || '',
+    head_name: row.head_name || '',
+    text_color_overrides: {},
+  };
 }
 
 export default function RegistryPage() {
-  const [certs, setCerts] = useState<CertRow[]>([]);
+  const [rows, setRows] = useState<RegistryGridRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [savingCell, setSavingCell] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  
-  const [currentPage, setCurrentPage] = useState(1);
-  const [totalCount, setTotalCount] = useState(0);
-  const [certNumberSearch, setCertNumberSearch] = useState('');
-  const pageSize = 100;
-  
-  const [editingRowId, setEditingRowId] = useState<string | null>(null);
-  const [editFormData, setEditFormData] = useState<Partial<CertRow>>({});
-  const topScrollRef = useRef<HTMLDivElement>(null);
-  const tableScrollRef = useRef<HTMLDivElement>(null);
-  
+  const [quickFilter, setQuickFilter] = useState('');
+  const [gridApi, setGridApi] = useState<GridApi<RegistryGridRow> | null>(null);
   const router = useRouter();
 
-  const loadCerts = useCallback(async (page: number, searchTerm: string) => {
+  const loadCerts = useCallback(async () => {
     setLoading(true);
     setError(null);
-    
-    const from = (page - 1) * pageSize;
-    const to = from + pageSize - 1;
-    const normalizedSearch = searchTerm.trim();
 
-    let query = supabase
+    const { data, error: fetchError } = await supabase
       .from('certificates')
-      .select('*', { count: 'exact' })
-      .order('created_at', { ascending: false });
-
-    if (normalizedSearch) {
-      query = query.ilike('cert_number', `%${normalizedSearch}%`);
-    }
-
-    const { data, error: fetchError, count } = await query
-      .range(from, to);
+      .select('*')
+      .order('created_at', { ascending: false })
+      .range(0, 4999);
 
     if (fetchError) {
-      setError('Ошибка загрузки: ' + fetchError.message);
+      setError('Ошибка загрузки реестра: ' + fetchError.message);
+      setRows([]);
     } else {
-      setCerts(data || []);
-      if (count !== null) setTotalCount(count);
+      setRows(((data || []) as CertRow[]).map(toGridRow));
     }
     setLoading(false);
   }, []);
 
   useEffect(() => {
-    loadCerts(currentPage, certNumberSearch);
-  }, [loadCerts, currentPage, certNumberSearch]);
+    loadCerts();
+  }, [loadCerts]);
 
-  const handleCertNumberSearchChange = useCallback((value: string) => {
-    setCertNumberSearch(value);
-    setCurrentPage(1);
-  }, []);
+  const openInBlank = useCallback(
+    (row: CertRow) => {
+      localStorage.setItem(FORM_DRAFT_KEY, JSON.stringify({ version: FORM_DRAFT_VERSION, data: toFormDraft(row) }));
+      router.push('/');
+    },
+    [router],
+  );
 
-  const deleteCert = useCallback(async (id: string) => {
-    const { error: deleteError } = await supabase
-      .from('certificates')
-      .delete()
-      .eq('id', id);
-
-    if (deleteError) {
-      alert('Ошибка удаления: ' + deleteError.message);
-      return;
-    }
-
-    setCerts(prev => prev.filter(c => c.id !== id));
-  }, []);
+  const deleteCert = useCallback(
+    async (row: CertRow) => {
+      if (!confirm('Удалить эту запись из реестра?')) return;
+      const { error: deleteError } = await supabase.from('certificates').delete().eq('id', row.id);
+      if (deleteError) {
+        alert('Ошибка удаления: ' + deleteError.message);
+        return;
+      }
+      setRows(prev => prev.filter(item => item.id !== row.id).map((item, index) => ({ ...item, row_number: index + 1 })));
+    },
+    [],
+  );
 
   const clearAll = useCallback(async () => {
-    if (!confirm('Удалить все сертификаты из реестра?')) return;
-
+    if (!confirm('Удалить все записи из реестра?')) return;
     const { error: deleteError } = await supabase
       .from('certificates')
       .delete()
-      .neq('id', '00000000-0000-0000-0000-000000000000'); // удалить всё
+      .neq('id', '00000000-0000-0000-0000-000000000000');
 
     if (deleteError) {
-      alert('Ошибка при очистке: ' + deleteError.message);
+      alert('Ошибка очистки: ' + deleteError.message);
+      return;
+    }
+    setRows([]);
+  }, []);
+
+  const exportExcel = useCallback(() => {
+    if (!gridApi) return;
+    const visibleRows: RegistryGridRow[] = [];
+    gridApi.forEachNodeAfterFilterAndSort(node => {
+      if (node.data) visibleRows.push(node.data);
+    });
+
+    const headers = ['#', ...REGISTRY_COLUMNS.map(column => COLUMN_LABELS[column])];
+    const data = visibleRows.map((row, index) => {
+      const registryRow = formToRegistryRow(toFormDraft(row));
+      return [index + 1, ...REGISTRY_COLUMNS.map(column => registryRow[column] || '')];
+    });
+
+    const ws = XLSX.utils.aoa_to_sheet([headers, ...data]);
+    ws['!cols'] = headers.map(header => {
+      if (header.includes('Наименование')) return { wch: 42 };
+      if (header === 'Адрес' || header === 'Вид услуга') return { wch: 34 };
+      return { wch: 18 };
+    });
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Реестр');
+    XLSX.writeFile(wb, 'reestr_svidetelstv.xlsx');
+  }, [gridApi]);
+
+  const onCellValueChanged = useCallback(async (event: CellValueChangedEvent<RegistryGridRow>) => {
+    const field = event.colDef.field;
+    if (!event.data || !field || event.newValue === event.oldValue) return;
+
+    const nextValue = String(event.newValue ?? '');
+    const updatePayload =
+      field === 'service_type'
+        ? { services_list: serializeServicesList(normalizeServicesList(nextValue)) }
+        : { [field]: nextValue };
+
+    setSavingCell(true);
+    const { error: updateError } = await supabase.from('certificates').update(updatePayload).eq('id', event.data.id);
+    setSavingCell(false);
+
+    if (updateError) {
+      alert('Ошибка сохранения ячейки: ' + updateError.message);
+      event.node.setDataValue(field, event.oldValue);
       return;
     }
 
-    setCerts([]);
-  }, []);
-
-  const editCert = useCallback((cert: CertRow) => {
-    const formData = {
-      id: cert.id,
-      blank_number: cert.blank_number || '',
-      date_from_day: cert.date_from_day || '',
-      date_from_month: cert.date_from_month || '',
-      date_from_year: cert.date_from_year || '',
-      date_to_day: cert.date_to_day || '',
-      date_to_month: cert.date_to_month || '',
-      date_to_year: cert.date_to_year || '',
-      cert_number: cert.cert_number || '',
-      provider_name_address: cert.provider_name_address || '',
-      director_name: cert.director_name || '',
-      services_list: normalizeServicesList(cert.services_list),
-      normative_documents: cert.normative_documents || '',
-      conclusion_doc: cert.conclusion_doc || '',
-      tax_certificate: cert.tax_certificate || '',
-      inspection_body: cert.inspection_body || '',
-      head_name: cert.head_name || '',
-      text_color_overrides: {},
-    };
-    
-    // Save to draft and redirect
-    localStorage.setItem(FORM_DRAFT_KEY, JSON.stringify({ version: FORM_DRAFT_VERSION, data: formData }));
-    router.push('/');
-  }, [router]);
-
-  const startInlineEdit = useCallback((cert: CertRow) => {
-    setEditingRowId(cert.id);
-    setEditFormData({ ...cert });
-  }, []);
-
-  const cancelInlineEdit = useCallback(() => {
-    setEditingRowId(null);
-    setEditFormData({});
-  }, []);
-
-  const handleEditChange = useCallback((field: keyof CertRow, value: string) => {
-    setEditFormData(prev => ({ ...prev, [field]: value }));
-  }, []);
-
-  const saveInlineEdit = useCallback(async () => {
-    if (!editingRowId) return;
-    
-    setLoading(true);
-    const { error } = await supabase
-      .from('certificates')
-      .update(editFormData)
-      .eq('id', editingRowId);
-
-    if (error) {
-      alert(`Ошибка при сохранении: ${error.message}`);
-      setLoading(false);
-      return;
+    if (field === 'service_type') {
+      event.data.services_list = serializeServicesList(normalizeServicesList(nextValue));
+      event.data.service_type = normalizeServicesList(nextValue).filter(Boolean).join(' | ');
     }
+  }, []);
 
-    await loadCerts(currentPage, certNumberSearch);
-    setEditingRowId(null);
-    setEditFormData({});
-  }, [editingRowId, editFormData, loadCerts, currentPage, certNumberSearch]);
+  const columnDefs = useMemo<ColDef<RegistryGridRow>[]>(
+    () => [
+      {
+        headerName: '#',
+        field: 'row_number',
+        width: 76,
+        pinned: 'left',
+        sortable: false,
+        filter: false,
+        editable: false,
+      },
+      {
+        headerName: COLUMN_LABELS.cert_number,
+        field: 'cert_number',
+        minWidth: 160,
+        pinned: 'left',
+      },
+      {
+        headerName: COLUMN_LABELS.application_number,
+        field: 'application_number',
+        minWidth: 150,
+      },
+      {
+        headerName: COLUMN_LABELS.recipient_name,
+        field: 'recipient_name',
+        minWidth: 330,
+        flex: 1.4,
+        wrapText: true,
+        autoHeight: true,
+      },
+      {
+        headerName: COLUMN_LABELS.recipient_address,
+        field: 'recipient_address',
+        minWidth: 240,
+        flex: 1,
+        wrapText: true,
+        autoHeight: true,
+      },
+      {
+        headerName: COLUMN_LABELS.entrepreneur_name,
+        field: 'entrepreneur_name',
+        minWidth: 220,
+      },
+      {
+        headerName: COLUMN_LABELS.service_type,
+        field: 'service_type',
+        minWidth: 260,
+        flex: 1,
+        wrapText: true,
+        autoHeight: true,
+      },
+      {
+        headerName: COLUMN_LABELS.patent_number,
+        field: 'patent_number',
+        minWidth: 150,
+      },
+      {
+        headerName: COLUMN_LABELS.issue_date,
+        field: 'issue_date',
+        minWidth: 150,
+      },
+      {
+        headerName: COLUMN_LABELS.inspector_name,
+        field: 'inspector_name',
+        minWidth: 170,
+      },
+      {
+        headerName: COLUMN_LABELS.amount,
+        field: 'amount',
+        minWidth: 130,
+      },
+      {
+        headerName: 'Действия',
+        minWidth: 190,
+        pinned: 'right',
+        sortable: false,
+        filter: false,
+        editable: false,
+        cellRenderer: (params: ICellRendererParams<RegistryGridRow>) => {
+          if (!params.data) return null;
+          return (
+            <div className="flex h-full items-center gap-2">
+              <button
+                onClick={() => openInBlank(params.data as CertRow)}
+                className="rounded bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-700 hover:bg-emerald-100"
+              >
+                В бланк
+              </button>
+              <button
+                onClick={() => deleteCert(params.data as CertRow)}
+                className="rounded bg-red-50 px-2 py-1 text-xs font-semibold text-red-700 hover:bg-red-100"
+              >
+                Удалить
+              </button>
+            </div>
+          );
+        },
+      },
+    ],
+    [deleteCert, openInBlank],
+  );
 
-  const syncHorizontalScroll = useCallback((source: 'top' | 'table') => {
-    const from = source === 'top' ? topScrollRef.current : tableScrollRef.current;
-    const to = source === 'top' ? tableScrollRef.current : topScrollRef.current;
-    if (!from || !to || to.scrollLeft === from.scrollLeft) return;
-    to.scrollLeft = from.scrollLeft;
+  const defaultColDef = useMemo<ColDef<RegistryGridRow>>(
+    () => ({
+      editable: true,
+      sortable: true,
+      filter: true,
+      floatingFilter: true,
+      resizable: true,
+      minWidth: 120,
+      cellClass: 'leading-5',
+    }),
+    [],
+  );
+
+  const onGridReady = useCallback((event: GridReadyEvent<RegistryGridRow>) => {
+    setGridApi(event.api);
   }, []);
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <main className="max-w-[1800px] mx-auto p-6">
-        <div className="flex items-center justify-between mb-6">
-          <h2 className="text-xl font-bold text-gray-800">
-            Реестр сертификатов (всего: {totalCount})
-          </h2>
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                disabled={currentPage === 1 || loading}
-                className="px-3 py-1.5 rounded bg-white border border-gray-300 text-sm disabled:opacity-50 hover:bg-gray-50"
-              >
-                Пред.
-              </button>
-              <span className="text-sm font-medium text-gray-600">
-                Стр. {currentPage} из {Math.max(1, Math.ceil(totalCount / pageSize))}
-              </span>
-              <button
-                onClick={() => setCurrentPage(p => Math.min(Math.ceil(totalCount / pageSize), p + 1))}
-                disabled={currentPage >= Math.ceil(totalCount / pageSize) || loading}
-                className="px-3 py-1.5 rounded bg-white border border-gray-300 text-sm disabled:opacity-50 hover:bg-gray-50"
-              >
-                След.
-              </button>
-            </div>
+      <main className="mx-auto max-w-[1800px] p-6">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="text-xl font-bold text-gray-900">Реестр свидетельств</h2>
+            <p className="mt-1 text-sm text-gray-500">
+              {rows.length} записей. Сортировка, фильтры и поиск работают прямо в таблице.
+            </p>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              type="search"
+              value={quickFilter}
+              onChange={event => setQuickFilter(event.target.value)}
+              placeholder="Общий поиск по реестру"
+              className="w-72 max-w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+            />
             <button
-              onClick={() => loadCerts(currentPage, certNumberSearch)}
-              className="px-4 py-2 rounded-lg text-sm font-medium bg-blue-500 text-white hover:bg-blue-600 transition-colors"
+              onClick={loadCerts}
+              className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
             >
               Обновить
             </button>
-            {certs.length > 0 && (
+            <button
+              onClick={exportExcel}
+              disabled={!rows.length}
+              className="rounded-lg bg-teal-600 px-4 py-2 text-sm font-medium text-white hover:bg-teal-700 disabled:opacity-50"
+            >
+              Скачать Excel
+            </button>
+            {rows.length > 0 && (
               <button
                 onClick={clearAll}
-                className="px-4 py-2 rounded-lg text-sm font-medium bg-red-500 text-white hover:bg-red-600 transition-colors"
+                className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700"
               >
                 Очистить реестр
               </button>
@@ -233,206 +385,29 @@ export default function RegistryPage() {
           </div>
         </div>
 
-        <div className="mb-4 flex flex-wrap items-center gap-3">
-          <label htmlFor="cert-number-search" className="text-sm font-medium text-gray-700">
-            Поиск по № сертификата
-          </label>
-          <input
-            id="cert-number-search"
-            type="search"
-            value={certNumberSearch}
-            onChange={e => handleCertNumberSearchChange(e.target.value)}
-            placeholder="Введите номер"
-            className="w-80 max-w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-          />
-          {certNumberSearch && (
-            <button
-              onClick={() => handleCertNumberSearchChange('')}
-              className="px-3 py-2 rounded-lg text-sm font-medium bg-white border border-gray-300 text-gray-700 hover:bg-gray-50"
-            >
-              Сбросить
-            </button>
-          )}
+        {savingCell && <div className="mb-3 rounded-lg border border-blue-100 bg-blue-50 px-4 py-2 text-sm text-blue-700">Сохраняю ячейку...</div>}
+
+        {error && <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-red-700">{error}</div>}
+
+        <div className="rounded-lg border border-gray-200 bg-white p-2 shadow-sm">
+          <div className="ag-theme-quartz h-[calc(100dvh-190px)] min-h-[520px] w-full">
+            <AgGridReact<RegistryGridRow>
+              rowData={rows}
+              columnDefs={columnDefs}
+              defaultColDef={defaultColDef}
+              loading={loading}
+              pagination
+              paginationPageSize={50}
+              paginationPageSizeSelector={[25, 50, 100, 250]}
+              quickFilterText={quickFilter}
+              animateRows
+              enableCellTextSelection
+              stopEditingWhenCellsLoseFocus
+              onGridReady={onGridReady}
+              onCellValueChanged={onCellValueChanged}
+            />
+          </div>
         </div>
-
-        {error && (
-          <div className="mb-4 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
-            {error}
-          </div>
-        )}
-
-        {loading ? (
-          <div className="text-center py-16 text-gray-400">
-            <div className="inline-block w-6 h-6 border-2 border-gray-400 border-t-transparent rounded-full animate-spin mb-3"></div>
-            <p>Загрузка...</p>
-          </div>
-        ) : certs.length === 0 ? (
-          <div className="text-center py-16 text-gray-400">
-            <p className="text-lg">Реестр пуст</p>
-            <p className="text-sm mt-2">Сохраните сертификаты через главную страницу</p>
-          </div>
-        ) : (
-          <div className="bg-white border rounded-lg overflow-hidden">
-            <div
-              ref={topScrollRef}
-              onScroll={() => syncHorizontalScroll('top')}
-              className="overflow-x-auto border-b border-gray-200"
-            >
-              <div className="h-3 min-w-[3600px]" />
-            </div>
-            <div
-              ref={tableScrollRef}
-              onScroll={() => syncHorizontalScroll('table')}
-              className="overflow-x-auto"
-            >
-              <table className="w-full border-collapse text-sm">
-                <thead>
-                  <tr>
-                    <th className="bg-[#1d4ed8] text-white px-2 py-2 border border-blue-800 text-xs font-medium">
-                      #
-                    </th>
-                    {ALL_COLUMNS.map(col => (
-                      <th
-                        key={col}
-                        className="bg-[#1d4ed8] text-white px-2 py-2 border border-blue-800 text-center whitespace-nowrap text-xs font-medium"
-                      >
-                        {COLUMN_LABELS[col]}
-                      </th>
-                    ))}
-                    <th className="bg-[#1d4ed8] text-white px-2 py-2 border border-blue-800 text-xs font-medium">
-                      Действия
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {certs.map((cert, idx) => {
-                    const isEditing = cert.id === editingRowId;
-                    const row = formToRegistryRow({
-                      blank_number: cert.blank_number || '',
-                      date_from_day: cert.date_from_day || '',
-                      date_from_month: cert.date_from_month || '',
-                      date_from_year: cert.date_from_year || '',
-                      date_to_day: cert.date_to_day || '',
-                      date_to_month: cert.date_to_month || '',
-                      date_to_year: cert.date_to_year || '',
-                      cert_number: cert.cert_number || '',
-                      provider_name_address: cert.provider_name_address || '',
-                      director_name: cert.director_name || '',
-                      services_list: normalizeServicesList(cert.services_list),
-                      normative_documents: cert.normative_documents || '',
-                      conclusion_doc: cert.conclusion_doc || '',
-                      tax_certificate: cert.tax_certificate || '',
-                      inspection_body: cert.inspection_body || '',
-                      head_name: cert.head_name || '',
-                      text_color_overrides: {},
-                    });
-                    
-                    return (
-                      <tr key={cert.id} className="hover:bg-gray-50">
-                        <td className="px-2 py-2 border border-gray-300 text-center text-xs">
-                          {idx + 1}
-                        </td>
-                        {ALL_COLUMNS.map(col => {
-                          if (isEditing) {
-                            if (col === 'blank_number') return <td key={col} className="px-1 py-1 border border-gray-300"><input className="w-20 text-xs p-1 border rounded" value={editFormData.blank_number || ''} onChange={e => handleEditChange('blank_number', e.target.value)} /></td>;
-                            if (col === 'cert_number') return <td key={col} className="px-1 py-1 border border-gray-300"><input className="w-24 text-xs p-1 border rounded" value={editFormData.cert_number || ''} onChange={e => handleEditChange('cert_number', e.target.value)} /></td>;
-                            if (col === 'date_from') return (
-                              <td key={col} className="px-1 py-1 border border-gray-300 text-xs">
-                                <div className="flex gap-1">
-                                  <input className="w-8 p-1 border rounded text-center" value={editFormData.date_from_day || ''} onChange={e => handleEditChange('date_from_day', e.target.value)} placeholder="DD" />
-                                  <select className="w-[80px] p-1 border rounded" value={editFormData.date_from_month || ''} onChange={e => handleEditChange('date_from_month', e.target.value)}>
-                                     <option value="">Месяц</option>
-                                     {TAJIK_MONTHS.map(m => <option key={m} value={m}>{m}</option>)}
-                                  </select>
-                                  <input className="w-12 p-1 border rounded text-center" value={editFormData.date_from_year || ''} onChange={e => handleEditChange('date_from_year', e.target.value)} placeholder="YYYY" />
-                                </div>
-                              </td>
-                            );
-                            if (col === 'date_to') return (
-                              <td key={col} className="px-1 py-1 border border-gray-300 text-xs">
-                                <div className="flex gap-1">
-                                  <input className="w-8 p-1 border rounded text-center" value={editFormData.date_to_day || ''} onChange={e => handleEditChange('date_to_day', e.target.value)} placeholder="DD" />
-                                  <select className="w-[80px] p-1 border rounded" value={editFormData.date_to_month || ''} onChange={e => handleEditChange('date_to_month', e.target.value)}>
-                                     <option value="">Месяц</option>
-                                     {TAJIK_MONTHS.map(m => <option key={m} value={m}>{m}</option>)}
-                                  </select>
-                                  <input className="w-12 p-1 border rounded text-center" value={editFormData.date_to_year || ''} onChange={e => handleEditChange('date_to_year', e.target.value)} placeholder="YYYY" />
-                                </div>
-                              </td>
-                            );
-                            if (col === 'provider_name_address') return <td key={col} className="px-1 py-1 border border-gray-300"><input className="w-32 text-xs p-1 border rounded" value={editFormData.provider_name_address || ''} onChange={e => handleEditChange('provider_name_address', e.target.value)} /></td>;
-                            if (col === 'director_name') return <td key={col} className="px-1 py-1 border border-gray-300"><input className="w-32 text-xs p-1 border rounded" value={editFormData.director_name || ''} onChange={e => handleEditChange('director_name', e.target.value)} /></td>;
-                            if (col === 'services_list') return <td key={col} className="px-1 py-1 border border-gray-300 text-xs text-gray-500 italic">Редактируйте на бланке</td>;
-                            if (col === 'normative_documents') return <td key={col} className="px-1 py-1 border border-gray-300"><input className="w-32 text-xs p-1 border rounded" value={editFormData.normative_documents || ''} onChange={e => handleEditChange('normative_documents', e.target.value)} /></td>;
-                            if (col === 'conclusion_doc') return <td key={col} className="px-1 py-1 border border-gray-300"><input className="w-32 text-xs p-1 border rounded" value={editFormData.conclusion_doc || ''} onChange={e => handleEditChange('conclusion_doc', e.target.value)} /></td>;
-                            if (col === 'tax_certificate') return <td key={col} className="px-1 py-1 border border-gray-300"><input className="w-32 text-xs p-1 border rounded" value={editFormData.tax_certificate || ''} onChange={e => handleEditChange('tax_certificate', e.target.value)} /></td>;
-                            if (col === 'inspection_body') return <td key={col} className="px-1 py-1 border border-gray-300"><input className="w-32 text-xs p-1 border rounded" value={editFormData.inspection_body || ''} onChange={e => handleEditChange('inspection_body', e.target.value)} /></td>;
-                            if (col === 'head_name') return <td key={col} className="px-1 py-1 border border-gray-300"><input className="w-32 text-xs p-1 border rounded" value={editFormData.head_name || ''} onChange={e => handleEditChange('head_name', e.target.value)} /></td>;
-                            
-                            return (
-                              <td key={col} className="px-2 py-2 border border-gray-300 text-center text-xs bg-gray-100">
-                                {row[col as keyof typeof row] || '\u00A0'}
-                              </td>
-                            );
-                          } else {
-                            return (
-                              <td
-                                key={col}
-                                className="px-2 py-2 border border-gray-300 text-center text-xs max-w-[150px] truncate"
-                                title={row[col as keyof typeof row] || ''}
-                              >
-                                {row[col as keyof typeof row] || '\u00A0'}
-                              </td>
-                            );
-                          }
-                        })}
-                        {isEditing ? (
-                          <td className="px-2 py-2 border border-gray-300 text-center space-x-2 whitespace-nowrap">
-                            <button
-                              onClick={saveInlineEdit}
-                              className="text-blue-600 hover:text-blue-800 text-xs font-semibold"
-                            >
-                              Сохранить
-                            </button>
-                            <button
-                              onClick={cancelInlineEdit}
-                              className="text-gray-500 hover:text-gray-700 text-xs"
-                            >
-                              Отмена
-                            </button>
-                          </td>
-                        ) : (
-                          <td className="px-2 py-2 border border-gray-300 text-center space-x-2 whitespace-nowrap">
-                            <button
-                              onClick={() => editCert(cert)}
-                              className="text-green-600 hover:text-blue-800 text-xs"
-                              title="Редактировать на бланке"
-                            >
-                              В бланк
-                            </button>
-                            <button
-                              onClick={() => startInlineEdit(cert)}
-                              className="text-blue-600 hover:text-blue-800 text-xs"
-                              title="Редактировать в строке"
-                            >
-                              В строке
-                            </button>
-                            <button
-                              onClick={() => deleteCert(cert.id)}
-                              className="text-red-500 hover:text-red-700 text-xs"
-                            >
-                              Удалить
-                            </button>
-                          </td>
-                        )}
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
       </main>
     </div>
   );

@@ -8,17 +8,17 @@ The app lets a user:
 
 - Fill a Tajik/Russian certificate form on an A4-sized print canvas.
 - Drag fields in calibration mode so printed text can be aligned with a physical blank.
-- Save certificates into a Supabase-backed registry.
-- Search/edit/delete registry rows.
+- Save certificates into a Supabase-backed registry when printing or by clicking "В реестр".
+- Search/filter/sort/edit/delete registry rows in an AG Grid table.
 - Copy/export the current form row to Excel.
 - Save and reload reusable templates.
 
 ## Main Files
 
-- `src/app/page.tsx` - main certificate editor page, toolbar, templates, saving to registry, Excel export.
+- `src/app/page.tsx` - main certificate editor page, registry-only sidebar fields, toolbar, templates, saving to registry, Excel export.
 - `src/app/components/CertificateEditor.tsx` - A4 print canvas and field layout definitions in millimeters.
 - `src/app/components/DraggableField.tsx` - editable/drag-enabled absolute-positioned fields.
-- `src/app/registry/page.tsx` - registry table, search, inline edits, loading a registry row back into the blank.
+- `src/app/registry/page.tsx` - AG Grid registry table, quick search, column filters/sorting, inline cell edits, Excel export, loading a registry row back into the blank.
 - `src/lib/certificateTypes.ts` - canonical form shape, registry column order/labels, draft constants, service-list serialization helpers.
 - `src/lib/supabase.ts` - public Supabase client using `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY`.
 - `src/lib/autoReplace.ts` - abbreviation expansion rules stored in the `templates` table under a system row.
@@ -28,19 +28,33 @@ The app lets a user:
 
 `CertificateFormData` is the source of truth for the current certificate:
 
-- unique fields: blank number, certificate number, date fields
+- unique fields: blank number, application number, certificate number, date fields, patent number, issue date, amount
+- registry-only fields: recipient name, recipient address, entrepreneur name, inspector name
 - provider/director/service/document/tax/inspection/head fields
 - `services_list` is an array in the UI
 - `text_color_overrides` exists in the type, but is not currently rendered by `DraggableField`
 
 The `certificates.services_list` database column is `TEXT`. New saves store it as a JSON string array. The helper `normalizeServicesList()` can also read old pipe-separated values like `a | b | c`.
 
+Registry columns match the Excel screenshot:
+
+- № свидетельства
+- № заявка
+- Наименование предприятий, организаций, частных лиц, получивших свидетел.
+- Адрес
+- Ф.И.О предприниматель
+- Вид услуга
+- № патента
+- Дата выдачи
+- Инспектор
+- Сумма
+
 ## Local Storage
 
 The main form draft uses:
 
 - key: `cert_form_draft_v2`
-- version: `1`
+- version: `2`
 
 Keep `FORM_DRAFT_KEY` and `FORM_DRAFT_VERSION` imported from `src/lib/certificateTypes.ts` anywhere a page needs to hand data back to the editor. The registry "В бланк" action depends on this.
 
@@ -64,6 +78,17 @@ Tables:
 
 - `certificates` - registry rows
 - `templates` - user templates and the system auto-replacement row
+
+For existing Supabase projects, run the `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` statements in `schema.sql` so these registry columns exist:
+
+- `application_number`
+- `recipient_name`
+- `recipient_address`
+- `entrepreneur_name`
+- `patent_number`
+- `issue_date`
+- `inspector_name`
+- `amount`
 
 RLS is enabled, but policies are permissive for all CRUD operations.
 
