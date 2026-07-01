@@ -1,208 +1,237 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
-import { CertificateFormData } from '@/lib/certificateTypes';
-import DraggableField from './DraggableField';
-
-export const LAYOUT_VERSION = '4'; // Bumped for new project
-
-export interface FieldLayout {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  fontSize: number;
-  align: 'left' | 'center' | 'right';
-  bold: boolean;
-  color?: string;
-  multiline?: boolean;
-}
-
-export type Layouts = Record<string, FieldLayout>;
-
-export const DEFAULT_LAYOUTS: Layouts = {
-  blank_number: { x: 170, y: 40, width: 30, height: 8, fontSize: 14, align: 'right', bold: true, color: '#ff0000' },
-  date_from_day: { x: 130, y: 70, width: 10, height: 6, fontSize: 12, align: 'center', bold: false },
-  date_from_month: { x: 145, y: 70, width: 25, height: 6, fontSize: 12, align: 'center', bold: false },
-  date_from_year: { x: 175, y: 70, width: 15, height: 6, fontSize: 12, align: 'center', bold: false },
-  date_to_day: { x: 130, y: 80, width: 10, height: 6, fontSize: 12, align: 'center', bold: false },
-  date_to_month: { x: 145, y: 80, width: 25, height: 6, fontSize: 12, align: 'center', bold: false },
-  date_to_year: { x: 175, y: 80, width: 15, height: 6, fontSize: 12, align: 'center', bold: false },
-  cert_number: { x: 20, y: 95, width: 80, height: 6, fontSize: 12, align: 'left', bold: true },
-  provider_name_address: { x: 20, y: 110, width: 170, height: 12, fontSize: 12, align: 'center', bold: true, multiline: true },
-  director_name: { x: 20, y: 130, width: 170, height: 6, fontSize: 12, align: 'center', bold: true },
-  services_list_0: { x: 20, y: 160, width: 170, height: 6, fontSize: 11, align: 'center', bold: false },
-  services_list_1: { x: 20, y: 170, width: 170, height: 6, fontSize: 11, align: 'center', bold: false },
-  services_list_2: { x: 20, y: 180, width: 170, height: 6, fontSize: 11, align: 'center', bold: false },
-  normative_documents: { x: 60, y: 200, width: 130, height: 12, fontSize: 11, align: 'left', bold: false, multiline: true },
-  conclusion_doc: { x: 20, y: 220, width: 170, height: 12, fontSize: 11, align: 'left', bold: false, multiline: true },
-  tax_certificate: { x: 80, y: 250, width: 110, height: 6, fontSize: 11, align: 'left', bold: false },
-  inspection_body: { x: 80, y: 270, width: 80, height: 6, fontSize: 12, align: 'center', bold: true },
-  head_name: { x: 140, y: 285, width: 50, height: 6, fontSize: 12, align: 'center', bold: true },
-};
+import React from 'react';
+import {
+  CertificateFormData,
+  DEFAULT_HEAD_NAME,
+  DEFAULT_INSPECTION_BODY,
+  DEFAULT_STANDARD,
+  formatDateForText,
+  parseDateParts,
+} from '@/lib/certificateTypes';
 
 interface Props {
   formData: CertificateFormData;
-  onFieldChange: (key: keyof CertificateFormData, value: string) => void;
-  onArrayFieldChange: (key: string, index: number, value: string) => void;
-  onTextColorChange?: (field: string, start: number, end: number, color: '#000' | '#fff') => void;
-  onAddArrayRow: (key: string) => void;
-  onRemoveArrayRow: (key: string, index: number) => void;
-  calibrationMode: boolean;
+  previewBackground: boolean;
 }
 
-export default function CertificateEditor({
-  formData,
-  onFieldChange,
-  onArrayFieldChange,
-  onTextColorChange,
-  onAddArrayRow,
-  onRemoveArrayRow,
-  calibrationMode,
-}: Props) {
-  const [layouts, setLayouts] = useState<Layouts>(DEFAULT_LAYOUTS);
-  const editorRef = useRef<HTMLDivElement>(null);
+interface BoxProps {
+  x: number;
+  y: number;
+  width: number;
+  height?: number;
+  children: React.ReactNode;
+  className?: string;
+  align?: 'left' | 'center' | 'right';
+  fontSize?: number;
+  bold?: boolean;
+}
 
-  useEffect(() => {
-    try {
-      const saved = localStorage.getItem('cert_field_layouts');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (parsed.version === LAYOUT_VERSION) {
-          // Merge in case we added new default fields
-          setLayouts({ ...DEFAULT_LAYOUTS, ...parsed.layouts });
-        } else {
-          setLayouts(DEFAULT_LAYOUTS);
-        }
-      }
-    } catch {}
-  }, []);
+const SOURCE_Y_START = 81;
+const PAGE_Y_START = 76;
+const Y_SCALE = 0.67;
 
-  const handleLayoutChange = (key: string, layout: Partial<FieldLayout>) => {
-    setLayouts(prev => {
-      const next = {
-        ...prev,
-        [key]: { ...prev[key], ...layout },
-      };
-      localStorage.setItem(
-        'cert_field_layouts',
-        JSON.stringify({ version: LAYOUT_VERSION, layouts: next }),
-      );
-      return next;
-    });
-  };
+function yPos(y: number) {
+  return PAGE_Y_START + (y - SOURCE_Y_START) * Y_SCALE;
+}
 
-  const renderField = (
-    key: string,
-    value: string,
-    onChange: (val: string) => void,
-    placeholder: string = '',
-  ) => {
-    if (!layouts[key]) return null;
-    return (
-      <DraggableField
-        key={key}
-        id={key}
-        value={value}
-        onChange={onChange}
-        layout={layouts[key]}
-        onLayoutChange={l => handleLayoutChange(key, l)}
-        calibrationMode={calibrationMode}
-        placeholder={placeholder}
-        containerRef={editorRef}
-        textColorOverrides={formData.text_color_overrides[key]}
-        onTextColorChange={onTextColorChange ? (start, end, color) => onTextColorChange(key, start, end, color) : undefined}
-      />
-    );
-  };
-
+function Box({ x, y, width, height, children, className = '', align = 'left', fontSize = 10.5, bold = false }: BoxProps) {
   return (
     <div
-      id="print-area"
-      ref={editorRef}
-      className="relative mx-auto bg-white"
+      className={`cert-box ${className}`}
       style={{
-        width: '210mm',
-        height: '297mm',
-        boxSizing: 'border-box',
+        left: `${x}mm`,
+        top: `${yPos(y)}mm`,
+        width: `${width}mm`,
+        height: height ? `${height}mm` : undefined,
+        textAlign: align,
+        fontSize: `${fontSize}pt`,
+        fontWeight: bold ? 700 : 400,
       }}
     >
-      <div className="absolute inset-0 bg-white pointer-events-none" style={{ zIndex: 0 }}></div>
-      <div className="absolute inset-0 z-10 print-text-layer">
-        {renderField('blank_number', formData.blank_number, v => onFieldChange('blank_number', v), '№ 000000')}
-        
-        {renderField('date_from_day', formData.date_from_day, v => onFieldChange('date_from_day', v), 'ДД')}
-        {renderField('date_from_month', formData.date_from_month, v => onFieldChange('date_from_month', v), 'ММММ')}
-        {renderField('date_from_year', formData.date_from_year, v => onFieldChange('date_from_year', v), 'ГГГГ')}
-        
-        {renderField('date_to_day', formData.date_to_day, v => onFieldChange('date_to_day', v), 'ДД')}
-        {renderField('date_to_month', formData.date_to_month, v => onFieldChange('date_to_month', v), 'ММММ')}
-        {renderField('date_to_year', formData.date_to_year, v => onFieldChange('date_to_year', v), 'ГГГГ')}
-        
-        {renderField('cert_number', formData.cert_number, v => onFieldChange('cert_number', v), '№ Сертификата')}
-        
-        {renderField('provider_name_address', formData.provider_name_address, v => onFieldChange('provider_name_address', v), 'Исполнитель и адрес')}
-        {renderField('director_name', formData.director_name, v => onFieldChange('director_name', v), 'ФИО руководителя')}
-        
-        {formData.services_list.map((val, i) =>
-          renderField(
-            `services_list_${i}`,
-            val,
-            v => onArrayFieldChange('services_list', i, v),
-            `Виды услуг (строка ${i + 1})`
-          )
-        )}
-        
-        {renderField('normative_documents', formData.normative_documents, v => onFieldChange('normative_documents', v), 'Нормативные документы')}
-        {renderField('conclusion_doc', formData.conclusion_doc, v => onFieldChange('conclusion_doc', v), 'Документ-основание')}
-        {renderField('tax_certificate', formData.tax_certificate, v => onFieldChange('tax_certificate', v), 'Справка НК')}
-        {renderField('inspection_body', formData.inspection_body, v => onFieldChange('inspection_body', v), 'Орган инспекции')}
-        {renderField('head_name', formData.head_name, v => onFieldChange('head_name', v), 'ФИО руководителя органа')}
-      </div>
+      {children}
+    </div>
+  );
+}
 
-      {calibrationMode && (
-        <div className="absolute left-full top-0 ml-4 w-64 bg-white border border-gray-300 shadow-xl rounded-lg p-4 z-50 no-print">
-          <h4 className="font-bold text-sm mb-3">Управление массивами</h4>
-          
-          <div className="mb-4">
-            <div className="flex justify-between items-center mb-2">
-              <span className="text-xs font-semibold">Виды услуг</span>
-              <div className="flex gap-1">
-                <button
-                  onClick={() => onAddArrayRow('services_list')}
-                  className="px-2 py-1 bg-cyan-100 text-cyan-700 rounded hover:bg-cyan-200 text-xs font-medium"
-                >
-                  +
-                </button>
-                <button
-                  onClick={() => onRemoveArrayRow('services_list', formData.services_list.length - 1)}
-                  disabled={formData.services_list.length <= 1}
-                  className="px-2 py-1 bg-red-100 text-red-700 rounded hover:bg-red-200 text-xs font-medium disabled:opacity-50"
-                >
-                  -
-                </button>
-              </div>
-            </div>
-            <p className="text-[10px] text-gray-500 leading-tight">
-              Добавляйте или удаляйте строки. Новые строки появятся на бланке.
-            </p>
-          </div>
-          
-          <div className="mt-4 pt-4 border-t border-gray-200">
-            <button
-              onClick={() => {
-                if (confirm('Сбросить все координаты к значениям по умолчанию?')) {
-                  setLayouts(DEFAULT_LAYOUTS);
-                  localStorage.removeItem('cert_field_layouts');
-                }
-              }}
-              className="w-full py-1.5 bg-gray-200 hover:bg-gray-300 text-gray-700 text-xs font-medium rounded transition-colors"
-            >
-              Сброс координат
-            </button>
-          </div>
-        </div>
-      )}
+function Underline({ x, y, width }: { x: number; y: number; width: number }) {
+  return <div className="cert-underline" style={{ left: `${x}mm`, top: `${yPos(y)}mm`, width: `${width}mm` }} />;
+}
+
+function fitClass(value: string, medium = 58, small = 92) {
+  if (value.length > small) return 'cert-fit cert-fit-small';
+  if (value.length > medium) return 'cert-fit cert-fit-medium';
+  return 'cert-fit';
+}
+
+export default function CertificateEditor({ formData, previewBackground }: Props) {
+  const issue = parseDateParts(formData.issueDate);
+  const validTo = parseDateParts(formData.validTo);
+  const standard = formData.standard || DEFAULT_STANDARD;
+  const inspectionBody = formData.inspectionBody || DEFAULT_INSPECTION_BODY;
+  const headName = formData.headName || DEFAULT_HEAD_NAME;
+
+  return (
+    <div id="print-area" className="shahodatnoma-page">
+      {previewBackground && <div className="certificate-preview-bg" aria-hidden="true" />}
+
+      <div className="certificate-overlay" aria-label="Печатный слой свидетельства">
+        <Box x={77} y={81.8} width={45} align="center" fontSize={13.5} bold>
+          Эътибор дорад
+        </Box>
+        <Box x={125.2} y={82.1} width={9} align="center" fontSize={12} bold>
+          аз
+        </Box>
+        <Box x={137.2} y={81.6} width={18} align="center" fontSize={12} bold>
+          « {issue.day || '__'} »
+        </Box>
+        <Box x={160.5} y={81.6} width={25} align="center" fontSize={12} bold>
+          {issue.month || '________'}
+        </Box>
+        <Box x={188} y={81.6} width={18} align="center" fontSize={12}>
+          {issue.year || '____'} с.
+        </Box>
+        <Underline x={137} y={87.2} width={67} />
+
+        <Box x={126.5} y={94.1} width={8} align="center" fontSize={12} bold>
+          то
+        </Box>
+        <Box x={137.2} y={93.6} width={18} align="center" fontSize={12} bold>
+          « {validTo.day || '__'} »
+        </Box>
+        <Box x={160.5} y={93.6} width={25} align="center" fontSize={12} bold>
+          {validTo.month || '________'}
+        </Box>
+        <Box x={188} y={93.6} width={18} align="center" fontSize={12}>
+          {validTo.year || '____'} с.
+        </Box>
+        <Underline x={137} y={99.2} width={67} />
+
+        <Box x={17} y={93} width={75} fontSize={11.5} bold>
+          №{formData.certificateNumber || 'TJ.762.37100.01.016 — 2025'}
+        </Box>
+
+        <Box x={16} y={106.4} width={118} fontSize={11.5} bold>
+          Шаҳодатномаи мазкур тасдиқ менамояд, ки хизматрасонии
+        </Box>
+        <Box x={131.2} y={104.6} width={74} align="center" fontSize={13.5} bold className={fitClass(formData.organizationName, 34, 54)}>
+          {formData.organizationName || 'Магозаи хӯрокворӣ'}
+        </Box>
+        <Underline x={132} y={112.8} width={73} />
+
+        <Box x={16} y={113.7} width={188} align="center" fontSize={12.2} bold className={fitClass(formData.address, 74, 112)}>
+          {formData.address || 'шаҳри Душанбе, ноҳияи И. Сомонӣ, хиёбони Рӯдакӣ 185'}
+        </Box>
+        <Underline x={16} y={122} width={188} />
+        <Box x={74} y={122.3} width={62} align="center" fontSize={7.2} bold>
+          (номгӯй муассиса ё иштирокчии хизматрасонӣ)
+        </Box>
+
+        <Box x={16} y={131.4} width={188} align="center" fontSize={12.5} bold className={fitClass(formData.entrepreneurName, 36, 60)}>
+          {formData.entrepreneurName || 'Каримов Э.'}
+        </Box>
+        <Underline x={16} y={139.3} width={188} />
+        <Box x={78} y={139.5} width={54} align="center" fontSize={7.2} bold>
+          (ному насаби роҳбари ташкилот)
+        </Box>
+
+        <Box x={16} y={145} width={188} fontSize={10.6} className="cert-justify" bold>
+          дар асоси Кодексҳои Ҷумҳурии Тоҷикистон «Дар бораи баҳодиҳии мутобиқат», «Дар бораи ҳимояи ҳуқуқи истеъмолкунандагон»,
+          «Дар бораи бамеъёрдарории техникӣ», «Дар бораи стандартонӣ», «Дар бораи таъмини ченаки ягона»,
+          «Дар бораи савдо ва хизматрасонии маишӣ», «Дар бораи бехатарии маҳсулоти хӯрокворӣ» аз ҷониби Тоҷикстандарт
+          баҳогузорӣ карда шуда, субъекти хоҷагидори мазкур имконияти иҷрои
+        </Box>
+
+        <Box x={16} y={175.2} width={188} align="left" fontSize={12} bold className={fitClass(formData.serviceType, 70, 112)}>
+          {formData.serviceType || 'хизматрасонии савдои чакана'}
+        </Box>
+        <Underline x={16} y={184.2} width={188} />
+        <Underline x={16} y={192.1} width={188} />
+        <Box x={87} y={192.2} width={48} align="center" fontSize={7.2} bold>
+          (номгӯй кору хизматрасонӣ)
+        </Box>
+
+        <Box x={16} y={201.2} width={40} fontSize={10.8} bold>
+          мутобиқи талаботи
+        </Box>
+        <Box x={57} y={198.7} width={63} align="center" fontSize={13.5} bold className={fitClass(standard, 24, 34)}>
+          {standard}
+        </Box>
+        <Underline x={56} y={207.7} width={130} />
+        <Box x={187} y={201.2} width={17} fontSize={10.8} bold>
+          дорад.
+        </Box>
+        <Box x={88} y={208.2} width={54} align="center" fontSize={7.2} bold>
+          (ифодаи номгӯи ҳуҷҷати меъёрии техникӣ)
+        </Box>
+
+        <Box x={31} y={218.1} width={171} fontSize={10.6} className="cert-justify" bold>
+          Шаҳодатнома дода шуд дар асоси хулосаи (тасдиқномаи) баҳогузорӣ оид ба тасдиқи мутобиқати хизматрасонии субъекти хоҷагидор
+          ба талаботи ҳуҷҷати меъёрии техникӣ
+        </Box>
+        <Box x={16} y={235.2} width={85} fontSize={10.8} bold>
+          аз {formatDateForText(formData.conclusionDate) || '__.__.____с.'} № {formData.applicationNumber || '____'}
+        </Box>
+        <Underline x={16} y={242.6} width={188} />
+
+        <Box x={16} y={245.5} width={133} fontSize={10.3} bold>
+          Ҳангоми шаҳодатномадиҳӣ ҳуҷҷати муайянкунандаи ҳуқуқи фаъолияти субъекти хоҷагидор
+        </Box>
+        <Box x={16} y={253.8} width={170} fontSize={10.5} bold className={fitClass(formData.patentNumber, 64, 98)}>
+          {formData.patentNumber || 'Шаҳодатномаи Кумитаи андоз'}
+        </Box>
+        <Box x={187} y={253.8} width={18} fontSize={10.5} bold>
+          ба инобат гирифта шуд.
+        </Box>
+        <Underline x={16} y={261.2} width={188} />
+
+        <Box x={25} y={263.2} width={178} fontSize={10.4} className="cert-justify" bold>
+          Дархосткунанда (иҷрокунандаи кор ва хизматрасонӣ) барои мутобиқати кору хизматрасонӣ ба талаботи муқарраргардидаи
+          ҳуҷҷати меъёрии техникӣ, ки дар шаҳодатнома дарҷ гардидааст ва огоҳ намудани истеъмолкунанда дар бобати доштани
+          шаҳодатнома масъул мебошад.
+        </Box>
+
+        <Box x={16} y={282.8} width={74} fontSize={10.4} bold>
+          Назорати инспексионӣ аз ҷониби
+        </Box>
+        <Box x={78} y={282.1} width={58} align="center" fontSize={11.2} bold className={fitClass(inspectionBody, 20, 34)}>
+          {inspectionBody}
+        </Box>
+        <Underline x={78} y={289.8} width={58} />
+        <Box x={158} y={282.8} width={45} fontSize={10.4} bold>
+          амалӣ карда мешавад.
+        </Box>
+        <Box x={83} y={290.2} width={49} align="center" fontSize={7.2} bold>
+          (номгӯи идорамот оид ба шаҳодатномадиҳӣ)
+        </Box>
+
+        <Box x={18} y={299.7} width={38} fontSize={10.5} bold>
+          Қайдҳои махсус
+        </Box>
+        <Underline x={54} y={307.2} width={150} />
+
+        <Box x={26} y={310} width={177} fontSize={10.4} className="cert-justify" bold>
+          Дар ҳолати иҷро нагардидани талаботи муқарраргардида шаҳодатномаи мазкур аз эътибор соқит дониста мешавад.
+        </Box>
+
+        <Box x={133} y={326.5} width={62} align="center" fontSize={11.4} bold>
+          Роҳбари мақомот
+        </Box>
+        <Box x={32} y={340} width={14} fontSize={11.3} bold>
+          Ч.М
+        </Box>
+        <Underline x={50} y={348.2} width={36} />
+        <Box x={61} y={349.2} width={16} align="center" fontSize={7.3} bold>
+          (имзо)
+        </Box>
+        <Box x={132} y={339.2} width={62} align="center" fontSize={12.4} bold>
+          {headName}
+        </Box>
+        <Underline x={132} y={348.2} width={62} />
+        <Box x={151} y={349.2} width={24} align="center" fontSize={7.3} bold>
+          (ному насаб)
+        </Box>
+      </div>
     </div>
   );
 }

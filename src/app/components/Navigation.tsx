@@ -7,26 +7,22 @@ export default function Navigation() {
   const pathname = usePathname();
 
   const links = [
-    { href: '/', label: 'Новый сертификат' },
+    { href: '/', label: 'Новое свидетельство' },
     { href: '/registry', label: 'Реестр' },
   ];
 
   return (
-    <header className="bg-[#1d4ed8] text-white shadow-md no-print">
-      <div className="max-w-[1600px] mx-auto px-6">
+    <header className="bg-slate-950 text-white shadow-md no-print">
+      <div className="mx-auto max-w-[1600px] px-6">
         <div className="flex items-center justify-between py-3">
-          <h1 className="text-lg font-bold">
-            Агентии Тоҷикстандарт
-          </h1>
+          <h1 className="text-lg font-bold">Тоҷикстандарт · Шаҳодатнома</h1>
           <nav className="flex gap-1">
             {links.map(link => (
               <Link
                 key={link.href}
                 href={link.href}
-                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                  pathname === link.href
-                    ? 'bg-white/20 text-white'
-                    : 'text-white/80 hover:bg-white/10 hover:text-white'
+                className={`rounded-md px-4 py-2 text-sm font-medium transition-colors ${
+                  pathname === link.href ? 'bg-white/18 text-white' : 'text-white/75 hover:bg-white/10 hover:text-white'
                 }`}
               >
                 {link.label}

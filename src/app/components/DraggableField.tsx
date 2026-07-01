@@ -1,5 +1,16 @@
 import React, { useState, useEffect } from 'react';
-import { FieldLayout } from './CertificateEditor';
+
+interface FieldLayout {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  fontSize: number;
+  align: 'left' | 'center' | 'right';
+  bold: boolean;
+  color?: string;
+  multiline?: boolean;
+}
 
 interface Props {
   id: string;

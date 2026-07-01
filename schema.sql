@@ -24,6 +24,8 @@ CREATE TABLE IF NOT EXISTS public.certificates (
     services_list TEXT,
     patent_number TEXT,
     issue_date TEXT,
+    valid_to DATE,
+    conclusion_date DATE,
     inspector_name TEXT,
     amount TEXT,
     normative_documents TEXT,
@@ -40,8 +42,15 @@ ALTER TABLE public.certificates ADD COLUMN IF NOT EXISTS recipient_address TEXT;
 ALTER TABLE public.certificates ADD COLUMN IF NOT EXISTS entrepreneur_name TEXT;
 ALTER TABLE public.certificates ADD COLUMN IF NOT EXISTS patent_number TEXT;
 ALTER TABLE public.certificates ADD COLUMN IF NOT EXISTS issue_date TEXT;
+ALTER TABLE public.certificates ADD COLUMN IF NOT EXISTS valid_to DATE;
+ALTER TABLE public.certificates ADD COLUMN IF NOT EXISTS conclusion_date DATE;
 ALTER TABLE public.certificates ADD COLUMN IF NOT EXISTS inspector_name TEXT;
 ALTER TABLE public.certificates ADD COLUMN IF NOT EXISTS amount TEXT;
+ALTER TABLE public.certificates ADD COLUMN IF NOT EXISTS normative_documents TEXT;
+ALTER TABLE public.certificates ADD COLUMN IF NOT EXISTS conclusion_doc TEXT;
+ALTER TABLE public.certificates ADD COLUMN IF NOT EXISTS tax_certificate TEXT;
+ALTER TABLE public.certificates ADD COLUMN IF NOT EXISTS inspection_body TEXT;
+ALTER TABLE public.certificates ADD COLUMN IF NOT EXISTS head_name TEXT;
 
 ALTER TABLE public.templates ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.certificates ENABLE ROW LEVEL SECURITY;

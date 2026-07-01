@@ -2,76 +2,113 @@
 @tailwind components;
 @tailwind utilities;
 
-@layer components {
-  .form-input {
-    @apply w-full px-3 py-2 border border-gray-300 rounded text-sm transition-colors
-      focus:border-[#1d4ed8] focus:ring-1 focus:ring-[#1d4ed8] focus:outline-none;
-  }
-}
-
 :root {
   --background: #ffffff;
   --foreground: #171717;
-  --green-primary: #1d4ed8;
-  --green-light: #90EE90;
+}
+
+html {
+  scroll-behavior: smooth;
 }
 
 body {
   color: var(--foreground);
   background: var(--background);
-  font-family: Arial, Helvetica, sans-serif;
 }
 
-/* Certificate editor serif font */
-.cert-editor {
+.shahodatnoma-page {
+  position: relative;
+  width: 210mm;
+  height: 297mm;
+  overflow: hidden;
+  background: #fff;
+  color: #000;
   font-family: 'PT Serif', 'Times New Roman', serif;
 }
 
-/* Editable fields on the certificate — subtle borders on screen */
-.cert-field {
-  transition: border-color 0.15s, box-shadow 0.15s;
-}
-.cert-field:hover {
-  border-color: rgba(46, 125, 50, 0.5) !important;
-}
-.cert-field:focus {
-  border-color: rgba(46, 125, 50, 0.8) !important;
-  box-shadow: 0 0 0 1px rgba(46, 125, 50, 0.3);
-}
-.cert-field::placeholder {
-  color: #bbb;
-  font-style: italic;
+.certificate-preview-bg {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background-image: url('/shahodatnoma-preview.jpg');
+  background-size: 100% 100%;
+  background-position: center;
+  background-repeat: no-repeat;
+  opacity: 0.36;
+  pointer-events: none;
+  user-select: none;
 }
 
-/* Hide elements with no-print class when printing */
+.certificate-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  color: #000;
+}
+
+.cert-box {
+  position: absolute;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  line-height: 1.15;
+  white-space: normal;
+  color: #000;
+}
+
+.cert-justify {
+  text-align: justify;
+  text-justify: inter-word;
+}
+
+.cert-underline {
+  position: absolute;
+  z-index: 1;
+  height: 0;
+  border-bottom: 0.35mm solid #000;
+}
+
+.cert-fit {
+  overflow-wrap: anywhere;
+}
+
+.cert-fit-medium {
+  font-size: 10.6pt !important;
+  line-height: 1.05;
+}
+
+.cert-fit-small {
+  font-size: 9.4pt !important;
+  line-height: 1.02;
+}
+
 @media print {
-  /* Remove non-certificate content from flow to prevent extra pages */
-  .no-print {
+  .no-print,
+  header {
     display: none !important;
   }
 
-  .min-h-screen {
-    min-height: 0 !important;
+  html,
+  body {
+    width: 210mm;
+    height: 297mm;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #fff !important;
   }
 
-  main {
-    padding: 0 !important;
+  body * {
+    visibility: hidden;
+  }
+
+  #print-area,
+  #print-area * {
+    visibility: visible;
   }
 
   #print-area-wrapper {
     border: none !important;
     box-shadow: none !important;
-  }
-
-  /* Скрываем всё через visibility — работает на любой глубине вложенности */
-  body * {
-    visibility: hidden;
-  }
-
-  /* Показываем только область сертификата */
-  #print-area,
-  #print-area * {
-    visibility: visible;
   }
 
   #print-area {
@@ -80,37 +117,24 @@ body {
     left: 0;
     width: 210mm;
     height: 297mm;
-    margin: 0;
-    padding: 0;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: hidden;
     background: #fff !important;
     box-shadow: none !important;
     border: none !important;
   }
 
-  /* input/textarea: keep padding & appearance so box model is identical to screen */
-  input.cert-field,
-  textarea.cert-field {
-    border-color: transparent !important;
-    background: transparent !important;
-    box-shadow: none !important;
-    outline: none !important;
+  .certificate-preview-bg {
+    display: none !important;
   }
 
-  input.cert-field::placeholder,
-  textarea.cert-field::placeholder {
-    color: transparent !important;
-    -webkit-text-fill-color: transparent !important;
-  }
-
-  /* select: remove appearance to hide dropdown arrow */
-  select.cert-field {
-    border: none !important;
-    background: transparent !important;
-    box-shadow: none !important;
-    outline: none !important;
-    padding: 0 !important;
-    appearance: none !important;
-    -webkit-appearance: none !important;
+  .certificate-overlay,
+  .cert-box,
+  .cert-underline {
+    color: #000 !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
   }
 
   @page {

@@ -2,17 +2,19 @@
 
 export const dynamic = 'force-dynamic';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ALL_COLUMNS,
   COLUMN_LABELS,
   CertificateFormData,
+  DEFAULT_HEAD_NAME,
+  DEFAULT_INSPECTION_BODY,
+  DEFAULT_STANDARD,
   EMPTY_FORM_DATA,
   FORM_DRAFT_KEY,
   FORM_DRAFT_VERSION,
   formToCertificatePayload,
   formToRegistryRow,
-  normalizeServicesList,
 } from '@/lib/certificateTypes';
 import CertificateEditor from './components/CertificateEditor';
 import { describeSupabaseError, getSupabaseConfigError, supabase } from '@/lib/supabase';
@@ -27,40 +29,36 @@ interface CertTemplate {
 }
 
 const UNIQUE_FIELDS: (keyof CertificateFormData)[] = [
-  'blank_number',
-  'application_number',
-  'date_from_day',
-  'date_from_month',
-  'date_from_year',
-  'date_to_day',
-  'date_to_month',
-  'date_to_year',
-  'cert_number',
-  'patent_number',
-  'issue_date',
+  'certificateNumber',
+  'applicationNumber',
+  'issueDate',
+  'validTo',
+  'conclusionDate',
   'amount',
 ];
 
-const REGISTRY_FIELDS: {
+const FORM_FIELDS: {
   key: keyof CertificateFormData;
   label: string;
+  type?: 'text' | 'date' | 'number';
   placeholder?: string;
   multiline?: boolean;
 }[] = [
-  { key: 'cert_number', label: '№ свидетельства' },
-  { key: 'application_number', label: '№ заявка' },
-  {
-    key: 'recipient_name',
-    label: 'Получатель свидетельства',
-    placeholder: 'Организация, предприятие или частное лицо',
-    multiline: true,
-  },
-  { key: 'recipient_address', label: 'Адрес', multiline: true },
-  { key: 'entrepreneur_name', label: 'Ф.И.О предприниматель' },
-  { key: 'patent_number', label: '№ патента' },
-  { key: 'issue_date', label: 'Дата выдачи', placeholder: 'например: 03.04.2026' },
-  { key: 'inspector_name', label: 'Инспектор' },
-  { key: 'amount', label: 'Сумма' },
+  { key: 'certificateNumber', label: 'Номер свидетельства', placeholder: 'TJ.762.37100.01.016 — 2025' },
+  { key: 'issueDate', label: 'Дата выдачи / действует с', type: 'date' },
+  { key: 'validTo', label: 'Действует до', type: 'date' },
+  { key: 'applicationNumber', label: 'Номер заявки / заключения', placeholder: '3703' },
+  { key: 'conclusionDate', label: 'Дата заключения / основания', type: 'date' },
+  { key: 'organizationName', label: 'Наименование', placeholder: 'Магозаи хӯрокворӣ', multiline: true },
+  { key: 'address', label: 'Адрес', placeholder: 'шаҳри Душанбе, ноҳияи И. Сомонӣ, хиёбони Рӯдакӣ 185', multiline: true },
+  { key: 'entrepreneurName', label: 'ФИО предпринимателя / руководителя', placeholder: 'Каримов Э.' },
+  { key: 'serviceType', label: 'Вид услуги', placeholder: 'хизматрасонии савдои чакана', multiline: true },
+  { key: 'patentNumber', label: 'Номер патента / документ права деятельности', placeholder: 'Шаҳодатномаи Кумитаи андоз', multiline: true },
+  { key: 'standard', label: 'Стандарт', placeholder: DEFAULT_STANDARD },
+  { key: 'inspectionBody', label: 'Орган инспекционного контроля', placeholder: DEFAULT_INSPECTION_BODY },
+  { key: 'inspectorName', label: 'Инспектор' },
+  { key: 'amount', label: 'Сумма', type: 'number' },
+  { key: 'headName', label: 'Руководитель органа', placeholder: DEFAULT_HEAD_NAME },
 ];
 
 function loadDraft(): CertificateFormData | null {
@@ -75,7 +73,9 @@ function loadDraft(): CertificateFormData | null {
     return {
       ...EMPTY_FORM_DATA,
       ...data,
-      services_list: normalizeServicesList(data.services_list),
+      standard: data.standard || DEFAULT_STANDARD,
+      inspectionBody: data.inspectionBody || DEFAULT_INSPECTION_BODY,
+      headName: data.headName || DEFAULT_HEAD_NAME,
       text_color_overrides:
         data.text_color_overrides && typeof data.text_color_overrides === 'object'
           ? data.text_color_overrides
@@ -95,6 +95,7 @@ function saveDraft(data: CertificateFormData) {
 function toTemplateData(data: CertificateFormData): Partial<CertificateFormData> {
   const templateData = { ...data } as Partial<CertificateFormData>;
   UNIQUE_FIELDS.forEach(field => delete templateData[field]);
+  delete templateData.id;
   return templateData;
 }
 
@@ -105,7 +106,7 @@ export default function Home() {
   const [copied, setCopied] = useState(false);
   const [saved, setSaved] = useState(false);
   const [printing, setPrinting] = useState(false);
-  const [calibrationMode, setCalibrationMode] = useState(false);
+  const [previewBackground, setPreviewBackground] = useState(true);
 
   const [templates, setTemplates] = useState<CertTemplate[]>([]);
   const [showTemplatesPanel, setShowTemplatesPanel] = useState(false);
@@ -136,10 +137,7 @@ export default function Home() {
     templateAutoSaveTimerRef.current = setTimeout(async () => {
       setTemplateAutoSaveStatus('saving');
       const data = toTemplateData(formData);
-      const { error: templateError } = await supabase
-        .from('templates')
-        .update({ data })
-        .eq('id', activeTemplateId);
+      const { error: templateError } = await supabase.from('templates').update({ data }).eq('id', activeTemplateId);
 
       if (templateError) {
         console.warn('Template autosave failed', templateError);
@@ -173,42 +171,6 @@ export default function Home() {
 
   const updateField = useCallback((key: keyof CertificateFormData, value: string) => {
     setFormData(prev => ({ ...prev, [key]: applyAutoReplace(value) }));
-  }, []);
-
-  const updateArrayField = useCallback((key: 'services_list', index: number, value: string) => {
-    setFormData(prev => {
-      const next = [...prev[key]];
-      next[index] = applyAutoReplace(value);
-      return { ...prev, [key]: next };
-    });
-  }, []);
-
-  const addArrayRow = useCallback((key: 'services_list') => {
-    setFormData(prev => ({ ...prev, [key]: [...prev[key], ''] }));
-  }, []);
-
-  const removeArrayRow = useCallback((key: 'services_list', index: number) => {
-    setFormData(prev => {
-      if (prev[key].length <= 1) return prev;
-      return { ...prev, [key]: prev[key].filter((_, itemIndex) => itemIndex !== index) };
-    });
-  }, []);
-
-  const updateTextColor = useCallback((field: string, start: number, end: number, color: '#000' | '#fff') => {
-    if (start === end) return;
-    setFormData(prev => {
-      const nextFieldColors = { ...(prev.text_color_overrides[field] || {}) };
-      for (let i = Math.min(start, end); i < Math.max(start, end); i += 1) {
-        nextFieldColors[i] = color;
-      }
-      return {
-        ...prev,
-        text_color_overrides: {
-          ...prev.text_color_overrides,
-          [field]: nextFieldColors,
-        },
-      };
-    });
   }, []);
 
   const copyRow = useCallback(async () => {
@@ -281,7 +243,7 @@ export default function Home() {
 
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Реестр');
-    XLSX.writeFile(wb, 'reestr_svidetelstv.xlsx');
+    XLSX.writeFile(wb, 'reestr_shahodatnoma.xlsx');
   }, [formData]);
 
   const handlePrint = useCallback(async () => {
@@ -326,23 +288,17 @@ export default function Home() {
     setFormData({
       ...EMPTY_FORM_DATA,
       ...data,
-      services_list: normalizeServicesList(data.services_list),
-      text_color_overrides:
-        data.text_color_overrides && typeof data.text_color_overrides === 'object'
-          ? data.text_color_overrides
-          : EMPTY_FORM_DATA.text_color_overrides,
-      blank_number: '',
-      application_number: '',
-      cert_number: '',
-      patent_number: '',
-      issue_date: '',
+      id: undefined,
+      certificateNumber: '',
+      applicationNumber: '',
+      issueDate: '',
+      validTo: '',
+      conclusionDate: '',
       amount: '',
-      date_from_day: '',
-      date_from_month: '',
-      date_from_year: '',
-      date_to_day: '',
-      date_to_month: '',
-      date_to_year: '',
+      standard: data.standard || DEFAULT_STANDARD,
+      inspectionBody: data.inspectionBody || DEFAULT_INSPECTION_BODY,
+      headName: data.headName || DEFAULT_HEAD_NAME,
+      text_color_overrides: {},
     });
     setActiveTemplateId(template.id);
     setActiveTemplateName(template.name);
@@ -365,50 +321,68 @@ export default function Home() {
     [activeTemplateId],
   );
 
-  const filteredTemplates = templateSearch.trim()
-    ? templates.filter(template => template.name.toLowerCase().includes(templateSearch.trim().toLowerCase()))
-    : templates;
+  const filteredTemplates = useMemo(
+    () =>
+      templateSearch.trim()
+        ? templates.filter(template => template.name.toLowerCase().includes(templateSearch.trim().toLowerCase()))
+        : templates,
+    [templateSearch, templates],
+  );
 
   return (
-    <div className="min-h-screen bg-gray-50" onClick={() => showTemplatesPanel && setShowTemplatesPanel(false)}>
+    <div className="min-h-screen bg-slate-100" onClick={() => showTemplatesPanel && setShowTemplatesPanel(false)}>
       <main className="mx-auto max-w-[1580px] p-4" onClick={event => event.stopPropagation()}>
         <div className="no-print mb-4 flex flex-wrap items-center gap-3">
           <button
+            onClick={saveToRegistry}
+            className={`rounded-md px-5 py-2.5 text-sm font-semibold text-white transition-colors ${
+              saved ? 'bg-emerald-600' : 'bg-slate-900 hover:bg-slate-700'
+            }`}
+          >
+            {saved ? 'Сохранено' : 'Сохранить'}
+          </button>
+
+          <button
+            onClick={() => setPreviewBackground(value => !value)}
+            className="rounded-md border border-slate-300 bg-white px-5 py-2.5 text-sm font-semibold text-slate-800 transition-colors hover:bg-slate-50"
+          >
+            {previewBackground ? 'Скрыть фон preview' : 'Предпросмотр сертификата'}
+          </button>
+
+          <button
             onClick={handlePrint}
             disabled={printing}
-            className="rounded-lg bg-blue-700 px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-blue-800 disabled:opacity-60"
+            className="rounded-md bg-blue-700 px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-blue-800 disabled:opacity-60"
           >
-            {printing ? 'Сохраняю...' : 'Печать и в реестр'}
+            {printing ? 'Сохраняю...' : 'Печать сертификата'}
+          </button>
+
+          <button
+            onClick={saveToRegistry}
+            className="rounded-md bg-indigo-700 px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-indigo-800"
+          >
+            Добавить в реестр
           </button>
 
           <button
             onClick={copyRow}
-            className={`rounded-lg px-5 py-2.5 text-sm font-medium text-white transition-colors ${
-              copied ? 'bg-blue-600' : 'bg-blue-500 hover:bg-blue-600'
+            className={`rounded-md px-5 py-2.5 text-sm font-semibold text-white transition-colors ${
+              copied ? 'bg-emerald-600' : 'bg-cyan-700 hover:bg-cyan-800'
             }`}
           >
             {copied ? 'Скопировано' : 'Копировать строку'}
           </button>
 
           <button
-            onClick={saveToRegistry}
-            className={`rounded-lg px-5 py-2.5 text-sm font-medium text-white transition-colors ${
-              saved ? 'bg-blue-600' : 'bg-indigo-600 hover:bg-indigo-700'
-            }`}
-          >
-            {saved ? 'Сохранено' : formData.id ? 'Обновить в реестре' : 'В реестр'}
-          </button>
-
-          <button
             onClick={downloadExcel}
-            className="rounded-lg bg-teal-600 px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-teal-700"
+            className="rounded-md bg-teal-700 px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-teal-800"
           >
             Excel
           </button>
 
           <button
             onClick={clearForm}
-            className="rounded-lg bg-gray-500 px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-gray-600"
+            className="rounded-md bg-slate-500 px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-slate-600"
           >
             Очистить
           </button>
@@ -416,35 +390,35 @@ export default function Home() {
           <div className="relative">
             <button
               onClick={() => setShowTemplatesPanel(value => !value)}
-              className="rounded-lg bg-cyan-600 px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-cyan-700"
+              className="rounded-md bg-slate-700 px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-slate-800"
             >
               Шаблоны {templates.length > 0 && `(${templates.length})`}
             </button>
             {showTemplatesPanel && (
-              <div className="absolute left-0 top-full z-50 mt-1 w-80 rounded-lg border border-gray-200 bg-white shadow-xl">
+              <div className="absolute left-0 top-full z-50 mt-1 w-80 rounded-md border border-slate-200 bg-white shadow-xl">
                 <div className="border-b p-3">
-                  <p className="mb-2 text-xs text-gray-500">Загрузить шаблон без уникальных номеров, дат и суммы.</p>
+                  <p className="mb-2 text-xs text-slate-500">Загрузить шаблон без номера, дат, заявки и суммы.</p>
                   <input
                     type="text"
                     value={templateSearch}
                     onChange={event => setTemplateSearch(event.target.value)}
                     placeholder="Поиск"
                     autoFocus
-                    className="mb-2 w-full rounded border border-gray-300 px-2 py-1.5 text-xs outline-none focus:border-cyan-500"
+                    className="mb-2 w-full rounded border border-slate-300 px-2 py-1.5 text-xs outline-none focus:border-slate-600"
                   />
                   <div className="max-h-64 space-y-1 overflow-y-auto">
                     {filteredTemplates.length === 0 ? (
-                      <p className="text-xs italic text-gray-400">Шаблонов нет</p>
+                      <p className="text-xs italic text-slate-400">Шаблонов нет</p>
                     ) : (
                       filteredTemplates.map(template => (
-                        <div key={template.id} className="flex items-center justify-between gap-2 rounded px-2 py-1.5 hover:bg-gray-50">
+                        <div key={template.id} className="flex items-center justify-between gap-2 rounded px-2 py-1.5 hover:bg-slate-50">
                           <button
                             onClick={() => handleLoadTemplate(template)}
-                            className="flex-1 truncate text-left text-sm font-medium text-gray-800 hover:text-cyan-700"
+                            className="flex-1 truncate text-left text-sm font-medium text-slate-800 hover:text-slate-950"
                           >
                             {template.name}
                           </button>
-                          <button onClick={() => handleDeleteTemplate(template.id)} className="text-xs text-red-500 hover:text-red-700">
+                          <button onClick={() => handleDeleteTemplate(template.id)} className="text-xs text-red-600 hover:text-red-800">
                             Удалить
                           </button>
                         </div>
@@ -453,7 +427,7 @@ export default function Home() {
                   </div>
                 </div>
                 <div className="p-3">
-                  <p className="mb-2 text-xs font-medium text-gray-600">Сохранить текущие данные как шаблон:</p>
+                  <p className="mb-2 text-xs font-medium text-slate-600">Сохранить текущие данные как шаблон:</p>
                   <div className="flex gap-2">
                     <input
                       type="text"
@@ -461,12 +435,12 @@ export default function Home() {
                       onChange={event => setTemplateName(event.target.value)}
                       onKeyDown={event => event.key === 'Enter' && handleSaveTemplate()}
                       placeholder="Название"
-                      className="flex-1 rounded border border-gray-300 px-2 py-1.5 text-xs outline-none focus:border-cyan-500"
+                      className="flex-1 rounded border border-slate-300 px-2 py-1.5 text-xs outline-none focus:border-slate-600"
                     />
                     <button
                       onClick={handleSaveTemplate}
                       disabled={!templateName.trim() || templateSaving}
-                      className="rounded bg-cyan-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-cyan-700 disabled:opacity-40"
+                      className="rounded bg-slate-800 px-3 py-1.5 text-xs font-medium text-white hover:bg-slate-900 disabled:opacity-40"
                     >
                       {templateSaving ? '...' : 'Сохранить'}
                     </button>
@@ -477,54 +451,45 @@ export default function Home() {
           </div>
 
           {activeTemplateName && (
-            <div className="rounded-lg border border-cyan-200 bg-cyan-50 px-3 py-2 text-xs text-cyan-800">
+            <div className="rounded-md border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700">
               Шаблон: <span className="font-semibold">{activeTemplateName}</span>
               {templateAutoSaveStatus === 'saving' && <span className="ml-2 text-amber-600">сохраняется...</span>}
-              {templateAutoSaveStatus === 'saved' && <span className="ml-2 text-green-600">сохранен</span>}
+              {templateAutoSaveStatus === 'saved' && <span className="ml-2 text-emerald-600">сохранен</span>}
               {templateAutoSaveStatus === 'error' && <span className="ml-2 text-red-600">ошибка сохранения</span>}
             </div>
           )}
-
-          <button
-            onClick={() => setCalibrationMode(value => !value)}
-            className={`ml-auto rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
-              calibrationMode ? 'bg-yellow-500 text-white' : 'border border-gray-300 bg-white text-gray-700 hover:bg-gray-50'
-            }`}
-          >
-            {calibrationMode ? 'Настройка полей включена' : 'Настройка полей'}
-          </button>
         </div>
 
-        {error && <div className="no-print mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-red-700">{error}</div>}
+        {error && <div className="no-print mb-4 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-red-700">{error}</div>}
 
-        <div className="flex items-start justify-center gap-4">
-          <aside className="no-print sticky top-4 w-[330px] flex-shrink-0 rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
+        <div className="grid items-start gap-4 xl:grid-cols-[360px_minmax(0,1fr)]">
+          <aside className="no-print sticky top-4 rounded-md border border-slate-200 bg-white p-4 shadow-sm">
             <div className="mb-4">
-              <h2 className="text-base font-bold text-gray-900">Данные для реестра</h2>
-              <p className="mt-1 text-xs leading-5 text-gray-500">
-                Эти поля раскладываются по колонкам Excel-реестра со скрина. Поля бланка остаются на листе A4.
+              <h2 className="text-base font-bold text-slate-950">Данные для «Шаҳодатнома»</h2>
+              <p className="mt-1 text-xs leading-5 text-slate-500">
+                Инспектор и сумма сохраняются в реестр, но не печатаются на сертификате.
               </p>
             </div>
 
             <div className="space-y-3">
-              {REGISTRY_FIELDS.map(field => (
+              {FORM_FIELDS.map(field => (
                 <label key={field.key} className="block">
-                  <span className="mb-1 block text-xs font-semibold text-gray-700">{field.label}</span>
+                  <span className="mb-1 block text-xs font-semibold text-slate-700">{field.label}</span>
                   {field.multiline ? (
                     <textarea
                       value={String(formData[field.key] || '')}
                       onChange={event => updateField(field.key, event.target.value)}
                       placeholder={field.placeholder}
                       rows={2}
-                      className="w-full resize-none rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                      className="w-full resize-none rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-900 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100"
                     />
                   ) : (
                     <input
-                      type="text"
+                      type={field.type || 'text'}
                       value={String(formData[field.key] || '')}
                       onChange={event => updateField(field.key, event.target.value)}
                       placeholder={field.placeholder}
-                      className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                      className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-900 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100"
                     />
                   )}
                 </label>
@@ -532,19 +497,11 @@ export default function Home() {
             </div>
           </aside>
 
-          <div className="flex-shrink-0">
-            <div id="print-area-wrapper" className="border border-gray-300 bg-white shadow-lg">
-              <CertificateEditor
-                formData={formData}
-                onFieldChange={updateField}
-                onArrayFieldChange={(key, index, value) => updateArrayField(key as 'services_list', index, value)}
-                onTextColorChange={updateTextColor}
-                onAddArrayRow={() => addArrayRow('services_list')}
-                onRemoveArrayRow={(key, index) => removeArrayRow(key as 'services_list', index)}
-                calibrationMode={calibrationMode}
-              />
+          <section className="min-w-0 overflow-auto">
+            <div id="print-area-wrapper" className="mx-auto w-fit border border-slate-300 bg-white shadow-xl">
+              <CertificateEditor formData={formData} previewBackground={previewBackground} />
             </div>
-          </div>
+          </section>
         </div>
       </main>
     </div>

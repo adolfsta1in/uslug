@@ -1,7 +1,7 @@
-import type { Metadata } from "next";
-import { PT_Serif } from "next/font/google";
-import "./globals.css";
-import Navigation from "./components/Navigation";
+import type { Metadata } from 'next';
+import { PT_Serif } from 'next/font/google';
+import './globals.css';
+import Navigation from './components/Navigation';
 
 const ptSerif = PT_Serif({
   weight: ['400', '700'],
@@ -11,8 +11,8 @@ const ptSerif = PT_Serif({
 });
 
 export const metadata: Metadata = {
-  title: "Реестр сертификатов — Тоҷикстандарт",
-  description: "Парсер сертификатов соответствия для реестра",
+  title: 'Реестр свидетельств — Тоҷикстандарт',
+  description: 'Заполнение свидетельства «Шаҳодатнома» и ведение реестра',
 };
 
 export default function RootLayout({
