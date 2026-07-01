@@ -27,7 +27,7 @@ import {
   normalizeServicesList,
   serializeServicesList,
 } from '@/lib/certificateTypes';
-import { supabase } from '@/lib/supabase';
+import { describeSupabaseError, supabase } from '@/lib/supabase';
 
 ModuleRegistry.registerModules([AllCommunityModule]);
 
@@ -125,7 +125,7 @@ export default function RegistryPage() {
       .range(0, 4999);
 
     if (fetchError) {
-      setError('Ошибка загрузки реестра: ' + fetchError.message);
+      setError('Ошибка загрузки реестра: ' + describeSupabaseError(fetchError));
       setRows([]);
     } else {
       setRows(((data || []) as CertRow[]).map(toGridRow));
@@ -150,7 +150,7 @@ export default function RegistryPage() {
       if (!confirm('Удалить эту запись из реестра?')) return;
       const { error: deleteError } = await supabase.from('certificates').delete().eq('id', row.id);
       if (deleteError) {
-        alert('Ошибка удаления: ' + deleteError.message);
+        alert('Ошибка удаления: ' + describeSupabaseError(deleteError));
         return;
       }
       setRows(prev => prev.filter(item => item.id !== row.id).map((item, index) => ({ ...item, row_number: index + 1 })));
@@ -166,7 +166,7 @@ export default function RegistryPage() {
       .neq('id', '00000000-0000-0000-0000-000000000000');
 
     if (deleteError) {
-      alert('Ошибка очистки: ' + deleteError.message);
+      alert('Ошибка очистки: ' + describeSupabaseError(deleteError));
       return;
     }
     setRows([]);
@@ -212,7 +212,7 @@ export default function RegistryPage() {
     setSavingCell(false);
 
     if (updateError) {
-      alert('Ошибка сохранения ячейки: ' + updateError.message);
+      alert('Ошибка сохранения ячейки: ' + describeSupabaseError(updateError));
       event.node.setDataValue(field, event.oldValue);
       return;
     }

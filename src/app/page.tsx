@@ -15,7 +15,7 @@ import {
   normalizeServicesList,
 } from '@/lib/certificateTypes';
 import CertificateEditor from './components/CertificateEditor';
-import { isSupabaseConfigured, supabase } from '@/lib/supabase';
+import { describeSupabaseError, getSupabaseConfigError, supabase } from '@/lib/supabase';
 import * as XLSX from 'xlsx';
 import { applyAutoReplace, initAutoReplacements } from '@/lib/autoReplace';
 
@@ -232,8 +232,9 @@ export default function Home() {
     setSaved(false);
     setError(null);
 
-    if (!isSupabaseConfigured) {
-      setError('Supabase не настроен. Добавьте NEXT_PUBLIC_SUPABASE_URL и NEXT_PUBLIC_SUPABASE_ANON_KEY в .env.local или Vercel.');
+    const configError = getSupabaseConfigError();
+    if (configError) {
+      setError(configError);
       return false;
     }
 
@@ -252,7 +253,7 @@ export default function Home() {
       }
 
       if (saveError) {
-        setError('Ошибка при сохранении в реестр: ' + saveError.message);
+        setError('Ошибка при сохранении в реестр: ' + describeSupabaseError(saveError));
         return false;
       }
 
@@ -263,8 +264,7 @@ export default function Home() {
       setTimeout(() => setSaved(false), 3000);
       return true;
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'unknown error';
-      setError('Не удалось сохранить в реестр: ' + message);
+      setError('Ошибка при сохранении в реестр: ' + describeSupabaseError(err));
       return false;
     }
   }, [formData]);
