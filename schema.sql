@@ -55,10 +55,20 @@ ALTER TABLE public.certificates ADD COLUMN IF NOT EXISTS head_name TEXT;
 ALTER TABLE public.templates ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.certificates ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Enable read access for all users" ON public.templates;
+DROP POLICY IF EXISTS "Enable insert access for all users" ON public.templates;
+DROP POLICY IF EXISTS "Enable update access for all users" ON public.templates;
+DROP POLICY IF EXISTS "Enable delete access for all users" ON public.templates;
+
 CREATE POLICY "Enable read access for all users" ON public.templates FOR SELECT USING (true);
 CREATE POLICY "Enable insert access for all users" ON public.templates FOR INSERT WITH CHECK (true);
 CREATE POLICY "Enable update access for all users" ON public.templates FOR UPDATE USING (true) WITH CHECK (true);
 CREATE POLICY "Enable delete access for all users" ON public.templates FOR DELETE USING (true);
+
+DROP POLICY IF EXISTS "Enable read access for all users" ON public.certificates;
+DROP POLICY IF EXISTS "Enable insert access for all users" ON public.certificates;
+DROP POLICY IF EXISTS "Enable update access for all users" ON public.certificates;
+DROP POLICY IF EXISTS "Enable delete access for all users" ON public.certificates;
 
 CREATE POLICY "Enable read access for all users" ON public.certificates FOR SELECT USING (true);
 CREATE POLICY "Enable insert access for all users" ON public.certificates FOR INSERT WITH CHECK (true);
