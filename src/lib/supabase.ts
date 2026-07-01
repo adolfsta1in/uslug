@@ -53,6 +53,14 @@ export function describeSupabaseError(error: unknown): string {
     return 'В браузер попал secret API key. В NEXT_PUBLIC_SUPABASE_ANON_KEY должен быть public anon/publishable key, например sb_publishable_... или старый anon JWT eyJ..., но не sb_secret_...';
   }
 
+  if (isMissingSchemaColumnError(error)) {
+    return [
+      'В Supabase еще не применена миграция новых колонок реестра.',
+      'Запустите SQL из schema.sql в Supabase SQL Editor, затем обновите страницу.',
+      'До миграции приложение сохраняет данные в совместимом режиме, но лучше добавить нормальные колонки.',
+    ].join(' ');
+  }
+
   if (message.includes('Failed to fetch') || message.includes('fetch failed')) {
     return [
       'Не удалось подключиться к Supabase.',
@@ -62,6 +70,17 @@ export function describeSupabaseError(error: unknown): string {
   }
 
   return message;
+}
+
+export function isMissingSchemaColumnError(error: unknown): boolean {
+  const message =
+    error instanceof Error
+      ? error.message
+      : typeof error === 'object' && error && 'message' in error
+        ? String((error as { message?: unknown }).message)
+        : String(error || '');
+
+  return message.includes('Could not find the') && message.includes('column') && message.includes('schema cache');
 }
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);

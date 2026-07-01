@@ -24,10 +24,11 @@ import {
   FORM_DRAFT_VERSION,
   REGISTRY_COLUMNS,
   dbRowToFormData,
+  formToLegacyCertificatePayload,
   formToRegistryRow,
   serializeServicesList,
 } from '@/lib/certificateTypes';
-import { describeSupabaseError, supabase } from '@/lib/supabase';
+import { describeSupabaseError, isMissingSchemaColumnError, supabase } from '@/lib/supabase';
 
 ModuleRegistry.registerModules([AllCommunityModule]);
 
@@ -37,16 +38,41 @@ type RegistryGridRow = CertificateDbRow & {
 };
 
 function toGridRow(row: CertificateDbRow, index: number): RegistryGridRow {
+  const formData = dbRowToFormData(row);
   return {
     ...row,
+    cert_number: formData.certificateNumber,
+    application_number: formData.applicationNumber,
+    recipient_name: formData.organizationName,
+    recipient_address: formData.address,
+    entrepreneur_name: formData.entrepreneurName,
+    patent_number: formData.patentNumber,
+    issue_date: formData.issueDate,
+    inspector_name: formData.inspectorName,
+    amount: formData.amount,
     row_number: index + 1,
-    service_type: dbRowToFormData(row).serviceType,
+    service_type: formData.serviceType,
   };
 }
 
 function updatePayloadForField(field: string, nextValue: string) {
   if (field === 'service_type') return { services_list: serializeServicesList(nextValue) };
   return { [field]: nextValue || null };
+}
+
+function applyGridValueToForm(row: RegistryGridRow, field: string, nextValue: string) {
+  const formData = dbRowToFormData(row);
+  if (field === 'cert_number') formData.certificateNumber = nextValue;
+  if (field === 'application_number') formData.applicationNumber = nextValue;
+  if (field === 'recipient_name') formData.organizationName = nextValue;
+  if (field === 'recipient_address') formData.address = nextValue;
+  if (field === 'entrepreneur_name') formData.entrepreneurName = nextValue;
+  if (field === 'service_type') formData.serviceType = nextValue;
+  if (field === 'patent_number') formData.patentNumber = nextValue;
+  if (field === 'issue_date') formData.issueDate = nextValue;
+  if (field === 'inspector_name') formData.inspectorName = nextValue;
+  if (field === 'amount') formData.amount = nextValue;
+  return formData;
 }
 
 export default function RegistryPage() {
@@ -149,7 +175,14 @@ export default function RegistryPage() {
     const updatePayload = updatePayloadForField(field, nextValue);
 
     setSavingCell(true);
-    const { error: updateError } = await supabase.from('certificates').update(updatePayload).eq('id', event.data.id);
+    let { error: updateError } = await supabase.from('certificates').update(updatePayload).eq('id', event.data.id);
+
+    if (updateError && isMissingSchemaColumnError(updateError)) {
+      const formData = applyGridValueToForm(event.data, field, nextValue);
+      const legacyPayload = formToLegacyCertificatePayload(formData);
+      const { error: legacyUpdateError } = await supabase.from('certificates').update(legacyPayload).eq('id', event.data.id);
+      updateError = legacyUpdateError;
+    }
     setSavingCell(false);
 
     if (updateError) {

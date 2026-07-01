@@ -14,10 +14,11 @@ import {
   FORM_DRAFT_KEY,
   FORM_DRAFT_VERSION,
   formToCertificatePayload,
+  formToLegacyCertificatePayload,
   formToRegistryRow,
 } from '@/lib/certificateTypes';
 import CertificateEditor from './components/CertificateEditor';
-import { describeSupabaseError, getSupabaseConfigError, supabase } from '@/lib/supabase';
+import { describeSupabaseError, getSupabaseConfigError, isMissingSchemaColumnError, supabase } from '@/lib/supabase';
 import * as XLSX from 'xlsx';
 import { applyAutoReplace, initAutoReplacements } from '@/lib/autoReplace';
 
@@ -212,6 +213,20 @@ export default function Home() {
         const { data, error: insertError } = await supabase.from('certificates').insert(payload).select('id').single();
         saveError = insertError;
         savedId = data?.id;
+      }
+
+      if (saveError) {
+        if (isMissingSchemaColumnError(saveError)) {
+          const legacyPayload = formToLegacyCertificatePayload(formData);
+          if (formData.id) {
+            const { error: legacyUpdateError } = await supabase.from('certificates').update(legacyPayload).eq('id', formData.id);
+            saveError = legacyUpdateError;
+          } else {
+            const { data, error: legacyInsertError } = await supabase.from('certificates').insert(legacyPayload).select('id').single();
+            saveError = legacyInsertError;
+            savedId = data?.id;
+          }
+        }
       }
 
       if (saveError) {

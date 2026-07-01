@@ -54,6 +54,7 @@ export interface CertificateDbRow {
 export const DEFAULT_STANDARD = 'СТ ҶТ 1037-2001';
 export const DEFAULT_INSPECTION_BODY = 'Тоҷикстандарт';
 export const DEFAULT_HEAD_NAME = 'Рахмон И.Х.';
+export const LEGACY_FORM_DATA_PREFIX = '__shahodatnoma_v1__:';
 
 export const FORM_DRAFT_KEY = 'cert_form_draft_v3';
 export const FORM_DRAFT_VERSION = '3';
@@ -239,7 +240,49 @@ export function formToCertificatePayload(data: CertificateFormData): Record<stri
   };
 }
 
+export function formToLegacyCertificatePayload(data: CertificateFormData): Record<string, string | null> {
+  const from = parseDateParts(data.issueDate);
+  const to = parseDateParts(data.validTo);
+  const packedData = JSON.stringify({
+    certificateNumber: data.certificateNumber,
+    applicationNumber: data.applicationNumber,
+    organizationName: data.organizationName,
+    address: data.address,
+    entrepreneurName: data.entrepreneurName,
+    serviceType: data.serviceType,
+    patentNumber: data.patentNumber,
+    issueDate: data.issueDate,
+    validTo: data.validTo,
+    conclusionDate: data.conclusionDate,
+    inspectorName: data.inspectorName,
+    amount: data.amount,
+    standard: data.standard,
+    inspectionBody: data.inspectionBody,
+    headName: data.headName,
+  });
+
+  return {
+    blank_number: `${LEGACY_FORM_DATA_PREFIX}${packedData}`,
+    date_from_day: from.day || null,
+    date_from_month: from.month || null,
+    date_from_year: from.year || null,
+    date_to_day: to.day || null,
+    date_to_month: to.month || null,
+    date_to_year: to.year || null,
+    cert_number: data.certificateNumber || null,
+    provider_name_address: data.organizationName || null,
+    director_name: data.entrepreneurName || null,
+    services_list: serializeServicesList(data.serviceType),
+    normative_documents: data.standard || DEFAULT_STANDARD,
+    conclusion_doc: data.conclusionDate || null,
+    tax_certificate: data.patentNumber || null,
+    inspection_body: data.inspectionBody || DEFAULT_INSPECTION_BODY,
+    head_name: data.headName || DEFAULT_HEAD_NAME,
+  };
+}
+
 export function dbRowToFormData(row: Partial<CertificateDbRow>): CertificateFormData {
+  const packedData = parsePackedLegacyData(row.blank_number);
   const serviceType = normalizeServicesList(row.services_list).join(' | ');
   const issueDate =
     row.issue_date ||
@@ -252,24 +295,37 @@ export function dbRowToFormData(row: Partial<CertificateDbRow>): CertificateForm
 
   return {
     ...EMPTY_FORM_DATA,
+    ...packedData,
     id: row.id,
-    certificateNumber: row.cert_number || '',
-    applicationNumber: row.application_number || '',
-    organizationName: row.recipient_name || row.provider_name_address || '',
-    address: row.recipient_address || '',
-    entrepreneurName: row.entrepreneur_name || row.director_name || '',
-    serviceType,
-    patentNumber: row.patent_number || row.tax_certificate || '',
-    issueDate,
-    validTo,
-    conclusionDate: row.conclusion_date || row.conclusion_doc || '',
-    inspectorName: row.inspector_name || '',
-    amount: row.amount || '',
-    standard: row.normative_documents || DEFAULT_STANDARD,
-    inspectionBody: row.inspection_body || DEFAULT_INSPECTION_BODY,
-    headName: row.head_name || DEFAULT_HEAD_NAME,
+    certificateNumber: row.cert_number || packedData.certificateNumber || '',
+    applicationNumber: row.application_number || packedData.applicationNumber || '',
+    organizationName: row.recipient_name || row.provider_name_address || packedData.organizationName || '',
+    address: row.recipient_address || packedData.address || '',
+    entrepreneurName: row.entrepreneur_name || row.director_name || packedData.entrepreneurName || '',
+    serviceType: serviceType || packedData.serviceType || '',
+    patentNumber: row.patent_number || row.tax_certificate || packedData.patentNumber || '',
+    issueDate: issueDate || packedData.issueDate || '',
+    validTo: validTo || packedData.validTo || '',
+    conclusionDate: row.conclusion_date || row.conclusion_doc || packedData.conclusionDate || '',
+    inspectorName: row.inspector_name || packedData.inspectorName || '',
+    amount: row.amount || packedData.amount || '',
+    standard: row.normative_documents || packedData.standard || DEFAULT_STANDARD,
+    inspectionBody: row.inspection_body || packedData.inspectionBody || DEFAULT_INSPECTION_BODY,
+    headName: row.head_name || packedData.headName || DEFAULT_HEAD_NAME,
     text_color_overrides: {},
   };
+}
+
+function parsePackedLegacyData(value?: string | null): Partial<CertificateFormData> {
+  if (!value?.startsWith(LEGACY_FORM_DATA_PREFIX)) return {};
+
+  try {
+    const parsed = JSON.parse(value.slice(LEGACY_FORM_DATA_PREFIX.length));
+    if (!parsed || typeof parsed !== 'object') return {};
+    return parsed as Partial<CertificateFormData>;
+  } catch {
+    return {};
+  }
 }
 
 function legacyDateToIso(day?: string | null, month?: string | null, year?: string | null) {
