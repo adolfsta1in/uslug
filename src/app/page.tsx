@@ -106,7 +106,7 @@ export default function Home() {
   const [copied, setCopied] = useState(false);
   const [saved, setSaved] = useState(false);
   const [printing, setPrinting] = useState(false);
-  const [previewBackground, setPreviewBackground] = useState(true);
+  const [previewBackground, setPreviewBackground] = useState(false);
 
   const [templates, setTemplates] = useState<CertTemplate[]>([]);
   const [showTemplatesPanel, setShowTemplatesPanel] = useState(false);
@@ -346,7 +346,7 @@ export default function Home() {
             onClick={() => setPreviewBackground(value => !value)}
             className="rounded-md border border-slate-300 bg-white px-5 py-2.5 text-sm font-semibold text-slate-800 transition-colors hover:bg-slate-50"
           >
-            {previewBackground ? 'Скрыть фон preview' : 'Предпросмотр сертификата'}
+            {previewBackground ? 'Скрыть фон бланка' : 'Показать фон бланка'}
           </button>
 
           <button
